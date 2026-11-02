@@ -139,6 +139,36 @@ AntiPrototypeJs().then(() => {
       liveMaxLatencyDuration: undefined, // used by stream-controller
       liveDurationInfinity: false, // used by buffer-controller
     };
+
+    /**
+     * hls.js 1.x では *LoadingTimeOut / *LoadingMaxRetry 系は一切参照されず、
+     * manifestLoadPolicy / playlistLoadPolicy / fragLoadPolicy に置き換わった。
+     * (1.x の DefaultConfig にも旧キーは残っているが、値を読んでいる箇所が無い)
+     * 旧キーの設定を 1.x の loadPolicy に変換して、意図したタイムアウトとリトライを有効にする。
+     */
+    const toLoadPolicy = (config, prefix) => {
+      const timeOut = config[`${prefix}LoadingTimeOut`];
+      const maxRetry = config[`${prefix}LoadingMaxRetry`];
+      const retryDelay = config[`${prefix}LoadingRetryDelay`];
+      const maxRetryDelayMs = config[`${prefix}LoadingMaxRetryTimeout`];
+      const retry = () => ({
+        maxNumRetry: maxRetry,
+        retryDelayMs: retryDelay,
+        maxRetryDelayMs
+      });
+      return {
+        default: {
+          maxTimeToFirstByteMs: timeOut,
+          maxLoadTimeMs: timeOut,
+          timeoutRetry: retry(),
+          errorRetry: retry()
+        }
+      };
+    };
+    DEFAULT_CONFIG.manifestLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'manifest');
+    DEFAULT_CONFIG.playlistLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'level');
+    DEFAULT_CONFIG.fragLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'frag');
+
     DEFAULT_CONFIG.clone = (() => {
       return Object.assign({}, DEFAULT_CONFIG);
     });
