@@ -1257,7 +1257,10 @@ AntiPrototypeJs().then(() => {
           if (v === '' || v === '//') {
             this._src = '';
             this._destroyHLSJS();
-            this._video.src = '';
+            // video.src = '' は空文字が baseURL と連結されて
+            // ページ自体へのリクエストが発生する (NicoVideoPlayer.close のコメント参照)
+            this._video.removeAttribute('src');
+            this._video.load();
             this.playerMode = PLAYER_MODE.DEFAULT;
             return;
           }
