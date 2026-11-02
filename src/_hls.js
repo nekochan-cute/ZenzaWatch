@@ -59,7 +59,8 @@ AntiPrototypeJs().then(() => {
     const DEFAULT_CONFIG = {
       // hls.js 以外のパラメータ
       segment_duration: 4000, // dmc!
-      use_native_hls: true,   // SafariなどブラウザがHLS対応だったらそっちを使う
+      use_native_hls: false,  // ブラウザのHLS実装を優先する (Safari等)。ChromeはHLS対応を名乗るが
+                              // Domand の fMP4 + AES-128 を再生できないためデフォルトは無効
       show_video_label: false, //
       autoAbrEwmaDefaultEstimate: true,
       hls_js_ver: 'latest',
@@ -1370,8 +1371,10 @@ AntiPrototypeJs().then(() => {
         }
 
         get _useNativeHLS() {
+          // createVideoElement は use_native_hls が true の時 'yes' を入れている。
+          // 'no' と比較していたため、Safari 等では設定と真逆の動作になっていた
           return !!this._video.canPlayType('application/x-mpegURL') &&
-            this.getAttribute('use-native-hls') === 'no';
+            this.getAttribute('use-native-hls') === 'yes';
         }
 
         set playerMode(v) {
