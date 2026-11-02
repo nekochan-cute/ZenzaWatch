@@ -283,20 +283,14 @@ class TagListView extends BaseViewComponent {
   }
 
   _createDicIcon(text, hasDic) {
-    let href = `https://dic.nicovideo.jp/a/${encodeURIComponent(text)}`;
-    // TODO: 本家がHTML5に完全移行したらこのアイコンも消えるかもしれないので代替を探す
-    let src = hasDic ?
-      'https://live.nicovideo.jp/img/2012/watch/tag_icon002.png' :
-      'https://live.nicovideo.jp/img/2012/watch/tag_icon003.png' ;
-    let icon = `<img class="dicIcon" src="${src}">`;
-    
-    let hasNicodic = hasDic ? 1 : 0;
+    const href = `https://dic.nicovideo.jp/a/${encodeURIComponent(text)}`;
+    const hasNicodic = hasDic ? 1 : 0;
     return (
       `<zenza-tag-item-menu
         class="tagItemMenu"
         data-text="${encodeURIComponent(text)}"
         data-has-nicodic="${hasNicodic}"
-      ><a target="_blank" class="nicodic" href="${href}">${icon}</a></zenza-tag-item-menu>`
+      ><a target="_blank" class="nicodic" href="${href}" title="大百科を見る">百</a></zenza-tag-item-menu>`
     );
   }
 
@@ -648,9 +642,6 @@ TagListView.__shadow__ = (`
 
       .is-Editing .tagLink {
         pointer-events: none;
-      }
-      .is-Editing .dicIcon {
-        display: none;
       }
 
       .tagItem:not(.is-Locked) {

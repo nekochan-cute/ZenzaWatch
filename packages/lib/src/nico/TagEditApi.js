@@ -3,7 +3,8 @@ import {util} from '../../../../src/util';
 
 class TagEditApi {
 
-  load(videoId, editKey) {
+  // language: タグ名は表示言語ごとに異なるので、視聴ページと同じ言語で取得する
+  load(videoId, editKey, language = 'ja-jp') {
 
     const url = `https://nvapi.nicovideo.jp/v2/videos/${videoId}/tags`;
     //const url = `/tag_edit/${videoId}/?res_type=json&cmd=tags&_=${Date.now()}`;
@@ -15,7 +16,7 @@ class TagEditApi {
           'X-Frontend-Id': 6,
           'X-Frontend-Version': 0,
           'X-Request-With': 'https://www.nicovideo.jp',
-          'X-Niconico-Language': 'ja-jp',
+          'X-Niconico-Language': language,
           'X-Tag-Edit-Key': editKey,
         }
     };

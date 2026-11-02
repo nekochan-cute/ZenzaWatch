@@ -3,6 +3,7 @@ import {textUtil} from '../text/textUtil';
 import {nicoUtil} from '../nico/nicoUtil';
 import {Emitter} from '../Emitter';
 import {CacheStorage} from '../infra/CacheStorage';
+import {TagEditApi} from './TagEditApi';
 
 const Config = {
   getValue: () => {}
@@ -503,6 +504,27 @@ const VideoInfoLoader = (function () {
       });
   };
 
+  // タグ編集APIの応答にだけ大百科記事の有無(isNicodicArticleExists)が含まれている
+  const loadTagsWithNicodicStatus = ({videoId, editKey, language}) => {
+    if (!editKey) {
+      return Promise.resolve(null);
+    }
+    return new TagEditApi().load(videoId, editKey, language)
+      .then(data => data?.tags ?? null)
+      .catch(err => {
+        window.console.warn('タグの大百科情報の取得に失敗', err);
+        return null;
+      });
+  };
+
+  const mergeNicodicStatus = (tags, tagsWithNicodicStatus) => {
+    if (!tagsWithNicodicStatus) {
+      return tags;
+    }
+    const status = new Map(tagsWithNicodicStatus.map(tag => [tag.name, tag.isNicodicArticleExists]));
+    return tags.map(tag => status.has(tag.name) ? {...tag, isNicodicArticleExists: status.get(tag.name)} : tag);
+  };
+
   const WATCH_ERROR_MESSAGES = {
     NOT_FOUND: '動画が見つかりません',
     ADMINISTRATOR_DELETE_VIDEO: '動画は削除されています',
@@ -529,16 +551,25 @@ const VideoInfoLoader = (function () {
     }
 
     if (_data._version === "4") {
-      // lazy (シリーズ情報) は補助的なものなので、失敗しても再生は続ける
-      _data._lazy = await loadWatchV4Lazy({
-        videoId: _data.video.id,
-        token: _data.lazy.authKey,
-        trackId: _data.client.watchTrackId,
-      }).catch(err => {
-        window.console.warn('loadWatchV4Lazy fail', err);
-        return null;
-      });
-      _data.series = _data._lazy?.series ?? null;
+      // lazy (シリーズ情報) と大百科情報は補助的なものなので、失敗しても再生は続ける
+      const [lazy, tagsWithNicodicStatus] = await Promise.all([
+        loadWatchV4Lazy({
+          videoId: _data.video.id,
+          token: _data.lazy.authKey,
+          trackId: _data.client.watchTrackId,
+        }).catch(err => {
+          window.console.warn('loadWatchV4Lazy fail', err);
+          return null;
+        }),
+        loadTagsWithNicodicStatus({
+          videoId: _data.video.id,
+          editKey: _data.tagEdit?.editKey,
+          language: _data.comment?.nvComment?.params?.language,
+        }),
+      ]);
+      _data._lazy = lazy;
+      _data.series = lazy?.series ?? null;
+      _data.tags = mergeNicodicStatus(_data.tags, tagsWithNicodicStatus);
     }
 
     const csrfToken = null;
