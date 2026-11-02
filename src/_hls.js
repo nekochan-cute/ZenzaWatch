@@ -2054,7 +2054,8 @@ AntiPrototypeJs().then(() => {
         reset(config) {
           if (!this._shadow) { return; }
           Object.keys(this._elm).forEach(key => {
-            if (config && config[key]) {
+            // false や 0 の設定値も既定値として反映する (config[key] の真偽で判定しない)
+            if (config && key in config) {
               this._elm[key].defaultValue = config[key];
             }
             this._elm[key].reset();
