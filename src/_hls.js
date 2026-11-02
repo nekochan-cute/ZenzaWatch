@@ -329,9 +329,14 @@ AntiPrototypeJs().then(() => {
             req.onupgradeneeded = e => {
               const db = e.target.result;
 
-              if(db.objectStoreNames.contains(this.name)) {
-                db.deleteObjectStore(this.name);
-              }
+              // this.name はDB名('zenza_hls')なので、ストア名と比較すると
+              // 常に false になり、既存ストアがある状態で upgrade すると
+              // createObjectStore が ConstraintError で失敗する
+              this.storeNames.forEach(name => {
+                if (db.objectStoreNames.contains(name)) {
+                  db.deleteObjectStore(name);
+                }
+              });
 
               const [meta] = this.storeNames;
               const store = db.createObjectStore(meta,
@@ -406,7 +411,7 @@ AntiPrototypeJs().then(() => {
             req.onsuccess = e => {
               resolve(req.result);
             };
-            req.onerror = err => resolve;
+            req.onerror = err => resolve(0);
             if (timeout) {
               setTimeout(() => reject(`timeout: key${key}`), timeout);
             }
@@ -553,8 +558,9 @@ AntiPrototypeJs().then(() => {
           }
         },
         async hasData(...args) {
-          const result = await IndexDBStorage.getInstance().hasData(...args);
-          return {result};
+          // {result} で包むと受け手側で常に truthy になり、
+          // キャッシュが無くても「ある」と判定されてしまう
+          return await IndexDBStorage.getInstance().hasData(...args);
         },
         async gc() {
           if (navigator && navigator.locks) {
@@ -721,10 +727,18 @@ AntiPrototypeJs().then(() => {
 
         const frag2hash = fragment => {
           const url = fragment.url;
-          const levels = this.levels;
+          // FragmentLoaderClass.levels は _onHLSJSManifestParsed で入れている。
+          // ここは arrow function なので this は window (または undefined) になり、
+          // this.levels では絶対に取れない
+          const levels = FragmentLoaderClass && FragmentLoaderClass.levels;
 
-          const [path, videoId, level, sn] =
-              /\/nicovideo-([a-z0-9]+)_.*\/([\d]+)\/ts\/([\d]+)\.ts/.exec(url);
+          // 想定外のURL形式 (Domand の cmfv や将来の変更) で exec が null を返すと
+          // 分割代入が TypeError になり、fragment の読み込みが無言で止まる
+          const matched = /\/nicovideo-([a-z0-9]+)_.*\/([\d]+)\/ts\/([\d]+)\.ts/.exec(url);
+          if (!matched) {
+            return {hash: url, videoId: ''};
+          }
+          const [path, videoId, level, sn] = matched;
           let rel = '';
           if (fragment.levelkey && fragment.levelkey.reluri) {
             const m = /h=(.*?)&/.exec(fragment.levelkey.reluri);
@@ -740,7 +754,8 @@ AntiPrototypeJs().then(() => {
 
         const hasCache = async fragment => {
           const {hash} = frag2hash(fragment);
-          return await Storage.hasData({hash});
+          // Storage.hasData は worker から boolean が返る
+          return !!(await Storage.hasData({hash}));
         };
 
         const preloadFragment = async (fragment, url) => {
@@ -801,8 +816,10 @@ AntiPrototypeJs().then(() => {
               resp: { url },
               level,
               total: buffer.length,
-              stats,
-              url: context.url
+              // ここは preload なので hls.js の stats は存在しない。
+              // stats / context をそのまま参照すると ReferenceError になる
+              stats: null,
+              url
             }
           }, buffer);
           return true;
@@ -882,9 +899,11 @@ AntiPrototypeJs().then(() => {
               // prototype.js のあるページでは動かないどころかブラクラ化する
               if (Config.get('enable_db_cache')) {
                 // console.log('***load', hash, Config.get('enable_db_cache'),window.Prototype);
-                const [meta, buffer] = await Storage.load({hash});
-                // console.log('cache?', !!meta, hash);
-                if (meta) {
+                // window.Prototype があるページでは sendRequest が null を返すので
+                // 分割代入すると TypeError になる
+                const cached = await Storage.load({hash});
+                if (cached) {
+                  const [meta, buffer] = cached;
                   frag.hasCache = true;
                   return callbacks.onSuccess(
                     {url: meta.url, data: buffer }, meta.stats, context, null);
@@ -1474,6 +1493,8 @@ AntiPrototypeJs().then(() => {
           this._levelData = [];
           if (this._fragmentLoader) {
             this._fragmentLoader.levels = data.levels;
+            // frag2hash は arrow function なので instance の this は見れない
+            FragmentLoaderClass.levels = data.levels;
           }
           this.dispatchEvent(new Event('loadedmetadata'));
           this.dispatchEvent(new Event('canplay'));
