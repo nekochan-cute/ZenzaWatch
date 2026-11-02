@@ -16,7 +16,7 @@ const VideoInfoLoader = (function () {
   const cacheStorage = new CacheStorage(sessionStorage);
 
   const parseWatchV3ApiData = (json) => {
-    const _data = json.data.response;
+    const _data = json?.data?.response;
     if (_data == null) {
       return
     }
@@ -271,7 +271,7 @@ const VideoInfoLoader = (function () {
   };
 
   const parseWatchV4ApiData = (json) => {
-    const _data = json.data.response.$watchV4?.data;
+    const _data = json?.data?.response?.$watchV4?.data;
     if (_data == null) {
       return
     }
@@ -411,10 +411,8 @@ const VideoInfoLoader = (function () {
       name: owner?.name,
       iconUrl: owner?.iconUrl,
     };
-    const {
-      contents: domandContent,
-      ...domandInfo
-    } = media;
+    // 有料・会員限定動画などでは media が null になる
+    const domandInfo = media == null ? null : (({contents, ...info}) => ({...contents, ...info}))(media);
 
     return {
       _version: "4",
@@ -469,10 +467,7 @@ const VideoInfoLoader = (function () {
         title,
         isLiked,
       },
-      domandInfo: {
-        ...domandContent,
-        ...domandInfo,
-      },
+      domandInfo,
       ownerInfo,
       viewerInfo,
       resumeInfo,
@@ -508,7 +503,23 @@ const VideoInfoLoader = (function () {
       });
   };
 
+  const WATCH_ERROR_MESSAGES = {
+    NOT_FOUND: '動画が見つかりません',
+    ADMINISTRATOR_DELETE_VIDEO: '動画は削除されています',
+    RIGHT_HOLDER_DELETE_VIDEO: '動画は権利者により削除されています',
+    HIDDEN_VIDEO: '動画は非表示に設定されています',
+    PRIVATE_VIDEO: '非公開動画です',
+  };
+
   const parseWatchApiData = async (json) => {
+    const errorResponse = json?.data?.response;
+    if (errorResponse?.errorCode) {
+      const {statusCode, errorCode, reasonCode} = errorResponse;
+      throw {
+        reason: statusCode === 403 ? 'forbidden' : 'not found',
+        message: WATCH_ERROR_MESSAGES[reasonCode] ?? `この動画は再生できません (${reasonCode || errorCode})`,
+      };
+    }
     const _data = parseWatchV4ApiData(json) ?? parseWatchV3ApiData(json);
     if (_data == null) {
       throw {
@@ -518,12 +529,16 @@ const VideoInfoLoader = (function () {
     }
 
     if (_data._version === "4") {
+      // lazy (シリーズ情報) は補助的なものなので、失敗しても再生は続ける
       _data._lazy = await loadWatchV4Lazy({
         videoId: _data.video.id,
         token: _data.lazy.authKey,
         trackId: _data.client.watchTrackId,
+      }).catch(err => {
+        window.console.warn('loadWatchV4Lazy fail', err);
+        return null;
       });
-      _data.series = _data._lazy.series;
+      _data.series = _data._lazy?.series ?? null;
     }
 
     const csrfToken = null;
