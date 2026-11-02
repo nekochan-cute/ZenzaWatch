@@ -2664,7 +2664,7 @@ const WatchPageHistory = (() => {
 		if (location.host !== 'www.nicovideo.jp') { return; }
 		window.addEventListener('beforeunload', () => {isOpen && restore()}, {passive: true});
 		window.addEventListener('error', () => {isOpen && restore()}, {passive: true});
-		window.addEventListener('unhandledrejection', updateOriginal, {passive: true});
+		window.addEventListener('unhandledrejection', () => {isOpen || updateOriginal()}, {passive: true});
 	};
 	const pushHistoryAgency = async (path, title) => {
 		if (!navigator || !navigator.locks) {
@@ -30957,11 +30957,17 @@ class HoverMenu {
 			.on('mouseout', this._onMouseout.bind(this))
 			.append($view);
 		window.addEventListener('click', this._onLinkClick.bind(this), true);
+		this._isWatchPage = nicoUtil.isGinzaWatchUrl();
+		window.navigation?.addEventListener('navigate', e => {
+			if (['push', 'traverse'].includes(e.navigationType)) {
+				this._isWatchPage = nicoUtil.isGinzaWatchUrl(e.destination.url);
+			}
+		});
 	}
 	get isOverrideWatchLink() {
 		return !!this._playerConfig.props.overrideWatchLink &&
 			location.host.endsWith('.nicovideo.jp') &&
-			!nicoUtil.isGinzaWatchUrl();
+			!this._isWatchPage;
 	}
 	setPlayer(player) {
 		this._player = player;
