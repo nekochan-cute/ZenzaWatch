@@ -1441,7 +1441,6 @@ AntiPrototypeJs().then(() => {
             this._hls.detachMedia();
             this._hls.destroy();
             if (this._fragmentLoader) {
-              delete this._hlsConfig.fLoader;
               delete this._fragmentLoader;
             }
             this._hls = null;
@@ -1459,8 +1458,11 @@ AntiPrototypeJs().then(() => {
               //setTimeout(() => {Storage.gc(); }, 30000);
             //}
             this._fragmentLoader = createFragmentLoader(Hls);
-            this._hlsConfig.fLoader = this._fragmentLoader;
-            const hls = new Hls(this._hlsConfig);
+            // hls.config には fLoader をそのまま書かず、このインスタンス用の
+            // 設定オブジェクトを渡す (共有 hlsConfig を汚さないため)
+            const hls = new Hls(Object.assign({}, this._hlsConfig, {
+              fLoader: this._fragmentLoader
+            }));
             this._hls = hls;
 
             this._hls.on(Hls.Events.MANIFEST_PARSED,
@@ -2477,7 +2479,10 @@ AntiPrototypeJs().then(() => {
           //return null;
           // 静止画キャプチャ用なのにどんどんバッファするのは無駄なので抑える
           video.setAttribute('data-usecase', 'capture');
-          video.hlsConfig = Object.assign(hlsConfig, {
+          // 共有オブジェクト hlsConfig を直接書き換えると、
+          // 以降に作る通常再生用の hls インスタンスまで capture 用設定
+          // (autoStartLoad: false など) を引き継いで再生が始まらなくなる
+          video.hlsConfig = Object.assign({}, hlsConfig, {
             autoStartLoad: false,
             // maxBufferSize: 0,
             // maxBufferLength: 5,
