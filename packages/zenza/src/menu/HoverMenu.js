@@ -4,6 +4,19 @@ import {nicoUtil} from '../../../lib/src/nico/nicoUtil';
 import {cssUtil} from '../../../lib/src/css/css';
 //===BEGIN===
 
+// 公式の新UIでは動画カード全体 (data-anchor-href を持つ div) がクリックで遷移する
+const VIDEO_LINK_SELECTOR = [
+  'a[href*="watch/"]',
+  'a[href*="shorts/"]',
+  'a[href*="nico.ms/"]',
+  '[data-anchor-href*="watch/"]',
+  '[data-anchor-href*="shorts/"]',
+  '.UadVideoItem-link'
+].join(',');
+// 動画カードの中にある投稿者リンクやボタンなどは横取りしない
+const INTERACTIVE_SELECTOR = 'a[href],button,input,select,textarea,label,[role="button"],[role="menuitem"]';
+const WATCH_HOSTS = ['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'];
+
 class HoverMenu {
   constructor(param) {
     this.initialize(param);
@@ -15,21 +28,23 @@ class HoverMenu {
       '<zen-button class="ZenButton"><div class="ZenButtonInner scalingUI">Zen</div></zen-button>'
     );
 
-    if (!nicoUtil.isGinzaWatchUrl() &&
-      this._playerConfig.props.overrideWatchLink &&
-      location && location.host.endsWith('.nicovideo.jp')) {
-      this._overrideWatchLink();
-    } else {
-      this._onHoverEnd = _.debounce(this._onHoverEnd.bind(this), 500);
-      $view.on(
-        location.host.includes('google') ? 'mouseup' : 'click', this._onClick.bind(this));
-      ZenzaWatch.emitter.on('hideHover', () => $view.removeClass('show'));
-      uq('body')
-        .on('mouseover', this._onHover.bind(this))
-        .on('mouseover', this._onHoverEnd)
-        .on('mouseout', this._onMouseout.bind(this))
-        .append($view);
-    }
+    this._onHoverEnd = _.debounce(this._onHoverEnd.bind(this), 500);
+    $view.on(
+      location.host.includes('google') ? 'mouseup' : 'click', this._onClick.bind(this));
+    ZenzaWatch.emitter.on('hideHover', () => $view.removeClass('show'));
+    uq('body')
+      .on('mouseover', this._onHover.bind(this))
+      .on('mouseover', this._onHoverEnd)
+      .on('mouseout', this._onMouseout.bind(this))
+      .append($view);
+    // 公式ページの React はルート要素のキャプチャ段階でクリックを処理するので、それより先に横取りする
+    window.addEventListener('click', this._onLinkClick.bind(this), true);
+  }
+  // SPAで視聴ページと一覧ページを行き来するので、毎回現在のURLで判定する
+  get isOverrideWatchLink() {
+    return !!this._playerConfig.props.overrideWatchLink &&
+      location.host.endsWith('.nicovideo.jp') &&
+      !nicoUtil.isGinzaWatchUrl();
   }
   setPlayer(player) {
     this._player = player;
@@ -48,45 +63,66 @@ class HoverMenu {
     }
     return this._playerPromise;
   }
-  _closest(target) {
-    return target.closest('a[href*="watch/"],a[href*="shorts/"],a[href*="nico.ms/"],.UadVideoItem-link');
+  _findVideoLink(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+    const link = target.closest(VIDEO_LINK_SELECTOR);
+    if (!link || link.classList.contains('noHoverMenu')) {
+      return null;
+    }
+    const interactive = target.closest(INTERACTIVE_SELECTOR);
+    if (interactive && interactive !== link && link.contains(interactive)) {
+      return null;
+    }
+    return link;
+  }
+  _parseVideoLink(link) {
+    const href = link.dataset.href || link.getAttribute('href') || link.dataset.anchorHref;
+    if (!href) {
+      return null;
+    }
+    let url;
+    try {
+      url = new URL(href, location.href);
+    } catch (e) {
+      return null;
+    }
+    if (!WATCH_HOSTS.includes(url.hostname)) {
+      return null;
+    }
+    const watchId = nicoUtil.getWatchId(url.href);
+    if (!watchId || !/^[a-z0-9]+$/.test(watchId) || watchId.startsWith('lv')) {
+      return null;
+    }
+    return {watchId, query: nicoUtil.parseWatchQuery(url.search.substring(1))};
   }
   _onHover (e) {
-    const target = this._closest(e.target);
+    if (this.isOverrideWatchLink) {
+      return;
+    }
+    const target = this._findVideoLink(e.target);
     if (target) {
       this._hoverElement = target;
     }
   }
   _onMouseout (e) {
-    if (this._hoverElement === this._closest(e.target)) {
+    if (this._hoverElement === this._findVideoLink(e.target)) {
       this._hoverElement = null;
     }
   }
   _onHoverEnd (e) {
-    if (!this._hoverElement) { return; }
-    const target = this._closest(e.target);
-    if (this._hoverElement !== target) {
+    if (!this._hoverElement || this.isOverrideWatchLink) { return; }
+    const target = this._findVideoLink(e.target);
+    if (!target || this._hoverElement !== target) {
       return;
     }
-    if (!target || target.classList.contains('noHoverMenu')) {
+    const info = this._parseVideoLink(target);
+    if (!info) {
       return;
     }
-    let href = target.dataset.href || target.href;
-    let watchId = nicoUtil.getWatchId(href);
-    let host = target.hostname;
-    if (!['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'].includes(host)) {
-      return;
-    }
-    this._query = nicoUtil.parseWatchQuery((target.search || '').substr(1));
-
-    if (!watchId || !watchId.match(/^[a-z0-9]+$/)) {
-      return;
-    }
-    if (watchId.startsWith('lv')) {
-      return;
-    }
-
-    this._watchId = watchId;
+    this._query = info.query;
+    this._watchId = info.watchId;
 
     const offset = target.getBoundingClientRect();
     this._$view.css({
@@ -132,81 +168,31 @@ class HoverMenu {
     await this._getPlayer();
     ZenzaWatch.external.send(watchId, Object.assign({query: this._query}, params));
   }
-  _overrideWatchLink () {
-    let userPageIntercept;
-    if (document.querySelector('.UserPageHeader') != null) {
-      console.nicoru('user page');
-      const blockNavigation = e => {
-        if (e.ctrlKey) { return; }
-        e.preventDefault();
-        // e.stopPropagation();
-      };
-      userPageIntercept = e => {
-        const target = e.target;
-        if (target.tagName !== 'A' || !target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
-          return;
-        }
-        // console.nicoru('mouseover', target.tagName);
-        target.removeEventListener('click', blockNavigation);
-        target.addEventListener('click', blockNavigation);
-      }
+  _onLinkClick (e) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || !this.isOverrideWatchLink) {
+      return;
     }
-    const requireIntercepts = [];
-    if (location.pathname.startsWith('/ranking') || location.pathname.startsWith('/search') || location.pathname.startsWith('/tag')) {
-      console.nicoru('ranking/search/tag page');
-      requireIntercepts.push(e => {
-        const target = e.target.closest('button');
-        return target != null && this._closest(target) != null;
-      });
+    const target = this._findVideoLink(e.target);
+    const info = target && this._parseVideoLink(target);
+    if (!info) {
+      return;
     }
-    const onClick = e => {
-      if (e.ctrlKey) { return; }
-      const target = this._closest(e.target);
-      if (!target || target.classList.contains('noHoverMenu')) {
-        return;
-      }
-      let href = target.dataset.href || target.href;
-      let watchId = nicoUtil.getWatchId(href);
-      if (!watchId || !watchId.match(/^[a-z0-9]+$/)) {
-        return;
-      }
-      if (watchId.startsWith('lv')) {
-        return;
-      }
 
-      if (target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
-        // console.nicoru('nicorepoi', target, target.href);
-        e.stopPropagation();
-        // history.pushState(null, null, target.href);
-      }
-      e.preventDefault();
+    e.preventDefault();
+    if (target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
+      // ニコレポは独自のクリック処理で遷移してしまうので止める
+      e.stopPropagation();
+    }
 
-      this._query = nicoUtil.parseWatchQuery((target.search || '').substr(1));
-      if (e.shiftKey) {
-        // 秘密機能。最後にZenzaWatchを開いたウィンドウで開く
-        this._send(watchId);
-      } else {
-        this._open(watchId);
-      }
+    this._query = info.query;
+    if (e.shiftKey) {
+      // 秘密機能。最後にZenzaWatchを開いたウィンドウで開く
+      this._send(info.watchId);
+    } else {
+      this._open(info.watchId);
+    }
 
-      window.setTimeout(() => ZenzaWatch.emitter.emit('hideHover'), 1500);
-    };
-    uq('body').on('mouseover', e => {
-      userPageIntercept?.(e);
-      const target = this._closest(e.target);
-      if (!target || target.classList.contains('noHoverMenu')) {
-        return;
-      }
-      let host = target.hostname;
-      if (!['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'].includes(host)) {
-        return;
-      }
-      target.removeEventListener('click', onClick);
-      if (requireIntercepts.length > 0 && requireIntercepts.some(f => f(e))) {
-        return;
-      }
-      target.addEventListener('click', onClick);
-    });
+    window.setTimeout(() => ZenzaWatch.emitter.emit('hideHover'), 1500);
   }
 }
 
