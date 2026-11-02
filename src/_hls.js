@@ -1606,7 +1606,9 @@ AntiPrototypeJs().then(() => {
 
           const event = new ErrorEvent('error');
           this._error = {
-            code: HLS_ERROR_CODE.UNKNOWN,
+            // せっかく data.type から求めた code を使わず定数にしていたため、
+            // どの fatal エラーも MEDIA_ERR_SRC_NOT_SUPPORTED として通知されていた
+            code,
             message: data.details
           };
           this.dispatchEvent(overrideTarget(event, this));
