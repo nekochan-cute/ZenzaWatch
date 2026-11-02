@@ -86,7 +86,8 @@ const WatchPageHistory = (() => {
     if (location.host !== 'www.nicovideo.jp') { return; }
     window.addEventListener('beforeunload', () => {isOpen && restore()}, {passive: true});
     window.addEventListener('error', () => {isOpen && restore()}, {passive: true});
-    window.addEventListener('unhandledrejection', updateOriginal, {passive: true});
+    // 開いている間の URL は ZenzaWatch が書き換えたものなので、元の URL として記録しない
+    window.addEventListener('unhandledrejection', () => {isOpen || updateOriginal()}, {passive: true});
   };
   // www.nicovideo.jp 以外で開いた時、
   // www.nicovideo.jp 配下のタブがあったら代わりに既読リンクの色を変える
