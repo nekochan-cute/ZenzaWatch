@@ -39,12 +39,20 @@ class HoverMenu {
       .append($view);
     // 公式ページの React はルート要素のキャプチャ段階でクリックを処理するので、それより先に横取りする
     window.addEventListener('click', this._onLinkClick.bind(this), true);
+
+    // ZenzaWatch 自身も開いている間は replaceState で URL を /watch/... に書き換えるので、
+    // location ではなく公式のページ遷移 (SPAのpushと戻る/進む) だけを追って視聴ページかどうかを判定する
+    this._isWatchPage = nicoUtil.isGinzaWatchUrl();
+    window.navigation?.addEventListener('navigate', e => {
+      if (['push', 'traverse'].includes(e.navigationType)) {
+        this._isWatchPage = nicoUtil.isGinzaWatchUrl(e.destination.url);
+      }
+    });
   }
-  // SPAで視聴ページと一覧ページを行き来するので、毎回現在のURLで判定する
   get isOverrideWatchLink() {
     return !!this._playerConfig.props.overrideWatchLink &&
       location.host.endsWith('.nicovideo.jp') &&
-      !nicoUtil.isGinzaWatchUrl();
+      !this._isWatchPage;
   }
   setPlayer(player) {
     this._player = player;
