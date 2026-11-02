@@ -2471,7 +2471,9 @@ AntiPrototypeJs().then(() => {
       console.log('%cinit ZenzaWatch HLS', 'background: cyan');
 
       const hlsConfig = Object.assign({}, Config.raw);
-      Config.on('update', (key, value) => {
+      // Config.set は emitter.emit('update', {key, value}) なので、
+      // (key, value) で受けると hlsConfig に '[object Object]' が入るだけになる
+      Config.on('update', ({key, value}) => {
         hlsConfig[key] = value;
       });
 
