@@ -1202,7 +1202,10 @@ AntiPrototypeJs().then(() => {
         set currentTime(v) {
           if (this.playerMode === PLAYER_MODE.HLS_JS &&
             this._hlsConfig.autoStartLoad === false) {
-            this._hls.startLoad(v);
+            // capture 用で autoStartLoad: false の時。 hls が破棄済みなら何もしない
+            if (this._hls) {
+              this._hls.startLoad(v);
+            }
             return;
           }
 
@@ -1481,7 +1484,10 @@ AntiPrototypeJs().then(() => {
               this._onHLSJSBufferEOS.bind(this));
             this.dispatchEvent(new CustomEvent('init-hls-js', {detail: {hls: hls}}));
             this._hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-              this._hls.loadSource(src);
+              // src が差し替えられて this._hls が別インスタンスになっていたら
+              // 古いインスタンスの src を新しい方に読ませてしまうので無視する
+              if (this._hls !== hls) { return; }
+              hls.loadSource(src);
             });
             // overrideKeyloader(hls);
             this._hls.attachMedia(this._video);
