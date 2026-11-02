@@ -1629,14 +1629,22 @@ AntiPrototypeJs().then(() => {
         window.customElements.define('zenza-video', ZenzaVideoElement);
       }
       if (!Hls) {
-        const s = document.createElement('script');
-        s.onload = () => {
+        // hls.js の読み込みはこのIIFEの直前で #HLSJS_Loader として一度だけ行っている。
+        // ここで再度 <script> を挿入すると二重ロードになるので、その完了を待つだけにする。
+        const onHlsLoaded = () => {
           Hls = window.Hls;
-          console.info('hls.js loaded:', window.Hls.version);
+          console.info('hls.js loaded:', Hls && Hls.version);
         };
-        s.src = `https://cdn.jsdelivr.net/npm/hls.js@${Config.get('hls_js_ver')}`;
-        // console.info('load hls.js from', s.src);
-        (document.head || document.documentElement).append(s);
+        if (window.Hls) {
+          onHlsLoaded();
+        } else {
+          const loader = document.getElementById('HLSJS_Loader');
+          if (loader) {
+            loader.addEventListener('load', onHlsLoaded, {once: true});
+          } else {
+            console.warn('hls.js is not loaded');
+          }
+        }
       } else {
         console.info('hls.js ready:', window.Hls.version);
       }
@@ -2521,7 +2529,10 @@ AntiPrototypeJs().then(() => {
   };
 
   try {
-    if (Hls) {
+    // @require がブロックされていると Hls は未定義のグローバルになる。
+    // そのまま if (Hls) と書くと ReferenceError になり、
+    // 下のローダー挿入 (エラー表示つき) が catch に飲み込まれて実行されない。
+    if (typeof Hls !== 'undefined' && Hls) {
       console.log('hls.js@%s required', Hls.version);
       window.Hls = Hls;
     } else
