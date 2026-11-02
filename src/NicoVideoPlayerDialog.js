@@ -2623,8 +2623,8 @@ class NicoVideoPlayerDialog extends Emitter {
       return Promise.reject();
     }
     const threadId = this._threadInfo.threadId * 1;
-    // force184のスレッドに184コマンドをつけてしまうとエラー. 同じなんだから無視すりゃいいだろが
-    if (this._threadInfo.force184 !== '1') {
+    // 184が強制されているスレッドに184コマンドを付けない (公式と同じ挙動)
+    if (!this._threadInfo.is184Forced) {
       cmd = cmd ? ('184 ' + cmd) : '184';
     }
     Object.assign(options, {isMine: true, isUpdating: true, thead: threadId});
@@ -2633,7 +2633,6 @@ class NicoVideoPlayerDialog extends Emitter {
 
     this._state.isCommentPosting = true;
 
-    const lang = this._playerConfig.props.commentLanguage;
     window.console.time('コメント投稿');
 
     const onSuccess = result => {
@@ -2663,7 +2662,7 @@ class NicoVideoPlayerDialog extends Emitter {
     };
 
     const msgInfo = this._videoInfo.msgInfo;
-    return this.threadLoader.postChat(msgInfo, text, cmd, vpos, lang)
+    return this.threadLoader.postChat(msgInfo, text, cmd, vpos)
       .then(onSuccess).catch(onFail);
   }
   removeChat(chat) {

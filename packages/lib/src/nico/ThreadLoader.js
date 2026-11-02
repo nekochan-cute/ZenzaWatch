@@ -9,6 +9,89 @@ const debug = {};
 const {ThreadLoader} = (() => {
   const FRONT_ID = '6';
   const FRONT_VER = '0';
+  const CLIENT_OS_TYPE = 'others';
+  const NVAPI_COMMENT_KEYS = 'https://nvapi.nicovideo.jp/v1/comment/keys';
+
+  // 公式プレイヤーはキー取得とコメントサーバーへのリクエストに pc=1 を付けている
+  const keyUrl = (type, params) => `${NVAPI_COMMENT_KEYS}/${type}?${new URLSearchParams({...params, pc: 1})}`;
+  const commentServerUrl = (path, server) => {
+    const url = new URL(path, server);
+    url.searchParams.set('pc', '1');
+    return url;
+  };
+  const COMMENT_SERVER_HEADERS = {
+    'X-Frontend-Id': FRONT_ID,
+    'X-Frontend-Version': FRONT_VER,
+    'X-Client-Os-Type': CLIENT_OS_TYPE,
+    'Content-Type': 'text/plain; charset=UTF-8'
+  };
+
+  // 公式と同じく、空白区切りで空のコマンドと重複を除く
+  const parseCommands = cmd => [...new Set((cmd || '').split(/\s+/).filter(c => c))];
+
+  // postKey の応答で challenge.isRequired が返ってきた時は Cloudflare Turnstile のトークンを添えないと投稿できない
+  const TURNSTILE_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  const CHALLENGE_TIMEOUT_MS = 3 * 60 * 1000;
+  let turnstileLoader = null;
+  const loadTurnstile = () => {
+    if (window.turnstile) {
+      return Promise.resolve(window.turnstile);
+    }
+    if (!turnstileLoader) {
+      turnstileLoader = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = TURNSTILE_URL;
+        script.async = true;
+        script.onload = () => window.turnstile ?
+          resolve(window.turnstile) : reject(new Error('turnstile is not available'));
+        script.onerror = () => reject(new Error('turnstile load error'));
+        (document.head || document.documentElement).append(script);
+      }).catch(err => {
+        turnstileLoader = null;
+        throw err;
+      });
+    }
+    return turnstileLoader;
+  };
+  const solveChallenge = async siteKey => {
+    const turnstile = await loadTurnstile();
+    const container = document.createElement('div');
+    container.className = 'zenzaTurnstileContainer';
+    Object.assign(container.style, {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      zIndex: '2147483647'
+    });
+    (document.fullscreenElement || document.body).append(container);
+    let widgetId;
+    try {
+      return await new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error('turnstile timeout')), CHALLENGE_TIMEOUT_MS);
+        const settle = (fn, value) => {
+          window.clearTimeout(timer);
+          fn(value);
+        };
+        widgetId = turnstile.render(container, {
+          sitekey: siteKey,
+          size: 'normal',
+          appearance: 'interaction-only',
+          'before-interactive-callback': () =>
+            PopupMessage.notify('コメント投稿の前に認証が必要です。画面中央の認証を完了してください'),
+          callback: token => settle(resolve, token),
+          'error-callback': code => settle(reject, new Error(`turnstile error ${code}`)),
+          'timeout-callback': () => settle(reject, new Error('turnstile timeout')),
+          'unsupported-callback': () => settle(reject, new Error('turnstile unsupported'))
+        });
+      });
+    } finally {
+      if (widgetId !== undefined) {
+        turnstile.remove(widgetId);
+      }
+      container.remove();
+    }
+  };
 
   const FORK_LABEL = {
     0: 'main',
@@ -24,7 +107,7 @@ const {ThreadLoader} = (() => {
     }
 
     async getThreadKey(videoId, options = {}) {
-      let url = `https://nvapi.nicovideo.jp/v1/comment/keys/thread?videoId=${videoId}`;
+      const url = keyUrl('thread', {videoId});
 
       console.log('getThreadKey url: ', url);
       try {
@@ -46,7 +129,7 @@ const {ThreadLoader} = (() => {
     }
 
     async getPostKey(threadId, options = {}) {
-      const url = `https://nvapi.nicovideo.jp/v1/comment/keys/post?threadId=${threadId}`;
+      const url = keyUrl('post', {threadId});
 
       console.log('getPostKey url: ', url);
       try {
@@ -70,11 +153,7 @@ const {ThreadLoader} = (() => {
       try {
         const { meta } = await netUtil.fetch(url, {
           method: 'PUT',
-          headers: {
-            'X-Frontend-Id': FRONT_ID,
-            'X-Frontend-Version': FRONT_VER,
-            'Content-Type': 'text/plain; charset=UTF-8'
-          },
+          headers: COMMENT_SERVER_HEADERS,
           body
         }).then(res => res.json());
         if (meta.status >= 300) {
@@ -92,11 +171,7 @@ const {ThreadLoader} = (() => {
       try {
         const { meta, data } = await netUtil.fetch(url, {
           method: 'POST',
-          headers: {
-            'X-Frontend-Id': FRONT_ID,
-            'X-Frontend-Version': FRONT_VER,
-            'Content-Type': 'text/plain; charset=UTF-8'
-          },
+          headers: COMMENT_SERVER_HEADERS,
           body
         }).then(res => res.json());
         if (meta.status >= 300) {
@@ -138,16 +213,12 @@ const {ThreadLoader} = (() => {
         packet.additionals.when = msgInfo.when;
       }
 
-      const url = new URL('/v1/threads', server);
+      const url = commentServerUrl('/v1/threads', server);
       console.log('load threads...', url, packet);
       try {
         const { meta, data } = await netUtil.fetch(url, {
           method: 'POST',
-          headers: {
-            'X-Frontend-Id': FRONT_ID,
-            'X-Frontend-Version': FRONT_VER,
-            'Content-Type': 'text/plain; charset=UTF-8'
-          },
+          headers: COMMENT_SERVER_HEADERS,
           body: JSON.stringify(packet)
         }).then(res => res.json());
         if (meta.status >= 300) {
@@ -227,15 +298,26 @@ const {ThreadLoader} = (() => {
         threadId,
         language
       } = msgInfo.threadInfo;
-      const url = new URL(`/v1/threads/${threadId}/comments`, msgInfo.nvComment.server);
-      const { postKey } = await this.getPostKey(threadId, { language });
+      const url = commentServerUrl(`/v1/threads/${threadId}/comments`, msgInfo.nvComment.server);
+      const { postKey, challenge } = await this.getPostKey(threadId, { language });
+      let challengeToken;
+      if (challenge?.isRequired && challenge.siteKey) {
+        challengeToken = await solveChallenge(challenge.siteKey).catch(err => {
+          window.console.error('challenge fail', err);
+          throw {
+            status: 'fail',
+            message: 'コメント投稿失敗 (認証に失敗しました)'
+          };
+        });
+      }
 
       const packet = JSON.stringify({
         body: text,
-        commands: cmd?.split(/[\x20\xA0\u3000\t\u2003\s]+/) ?? [],
-        vposMs: Math.floor((vpos || 0) * 10),
+        commands: parseCommands(cmd),
+        vposMs: Math.max(0, Math.floor((vpos || 0) * 10)),
         postKey,
         videoId,
+        challengeToken,
       });
       console.log('post packet: ', packet);
       try {
@@ -247,29 +329,21 @@ const {ThreadLoader} = (() => {
           message: 'コメント投稿成功'
         };
       } catch (error) {
-        const { result: { status: statusCode, errorCode } } = error;
-        if (statusCode == null) {
-          throw {
-            status: 'fail',
-            message: `コメント投稿失敗`
-          };
-        }
+        const { status: statusCode, errorCode } = error.result ?? {};
         if (!retrying && ['INVALID_TOKEN', 'EXPIRED_TOKEN'].includes(errorCode)) {
-          await this.load(msgInfo);
-        } else {
-          throw {
-            status: 'fail',
-            statusCode,
-            message: errorCode ? `コメント投稿失敗 ${errorCode}` : 'コメント投稿失敗'
-          };
+          // postKey を取り直して1回だけ再送する
+          return await this.postChat(msgInfo, text, cmd, vpos, true);
         }
-        await sleep(3000);
-        return await this.postChat(msgInfo, text, cmd, vpos, true)
+        throw {
+          status: 'fail',
+          statusCode,
+          message: errorCode ? `コメント投稿失敗 ${errorCode}` : 'コメント投稿失敗'
+        };
       }
     }
 
     async getDeleteKey(threadId, options = {}) {
-      const url = `https://nvapi.nicovideo.jp/v1/comment/keys/delete?threadId=${threadId}&fork=${options.fork || 'main'}`;
+      const url = keyUrl('delete', {threadId, fork: options.fork || 'main'});
 
       console.log('getNicoruKey url: ', url);
       try {
@@ -296,7 +370,7 @@ const {ThreadLoader} = (() => {
         threadId,
         language
       } = msgInfo.threadInfo;
-      const url = new URL(`/v1/threads/${threadId}/comment-comment-owner-deletions`, msgInfo.nvComment.server);
+      const url = commentServerUrl(`/v1/threads/${threadId}/comment-comment-owner-deletions`, msgInfo.nvComment.server);
       const fork = FORK_LABEL[chat.fork || 0];
       const { deleteKey } = await this.getDeleteKey(threadId, { language, fork });
       const packet = JSON.stringify({
@@ -327,7 +401,7 @@ const {ThreadLoader} = (() => {
     }
 
     async getNicoruKey(threadId, options = {}) {
-      const url = `https://nvapi.nicovideo.jp/v1/comment/keys/nicoru?threadId=${threadId}`;
+      const url = keyUrl('nicoru', {threadId, fork: options.fork || 'main'});
 
       console.log('getNicoruKey url: ', url);
       try {
@@ -354,11 +428,12 @@ const {ThreadLoader} = (() => {
         threadId,
         language
       } = msgInfo.threadInfo;
-      const url = new URL(`/v1/threads/${threadId}/nicorus`, msgInfo.nvComment.server);
-      const { nicoruKey } = await this.getNicoruKey(threadId, { language });
+      const url = commentServerUrl(`/v1/threads/${threadId}/nicorus`, msgInfo.nvComment.server);
+      const fork = FORK_LABEL[chat.fork || 0];
+      const { nicoruKey } = await this.getNicoruKey(threadId, { language, fork });
       const packet = JSON.stringify({
         content: chat.text,
-        fork: FORK_LABEL[chat.fork || 0],
+        fork,
         no: chat.no,
         nicoruKey,
         videoId,
