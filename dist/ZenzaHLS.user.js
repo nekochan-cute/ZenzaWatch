@@ -625,7 +625,8 @@ const workerUtil = (() => {
     const DEFAULT_CONFIG = {
       // hls.js 以外のパラメータ
       segment_duration: 4000, // dmc!
-      use_native_hls: true,   // SafariなどブラウザがHLS対応だったらそっちを使う
+      use_native_hls: false,  // ブラウザのHLS実装を優先する (Safari等)。ChromeはHLS対応を名乗るが
+                              // Domand の fMP4 + AES-128 を再生できないためデフォルトは無効
       show_video_label: false, //
       autoAbrEwmaDefaultEstimate: true,
       hls_js_ver: 'latest',
@@ -705,6 +706,36 @@ const workerUtil = (() => {
       liveMaxLatencyDuration: undefined, // used by stream-controller
       liveDurationInfinity: false, // used by buffer-controller
     };
+
+    /**
+     * hls.js 1.x では *LoadingTimeOut / *LoadingMaxRetry 系は一切参照されず、
+     * manifestLoadPolicy / playlistLoadPolicy / fragLoadPolicy に置き換わった。
+     * (1.x の DefaultConfig にも旧キーは残っているが、値を読んでいる箇所が無い)
+     * 旧キーの設定を 1.x の loadPolicy に変換して、意図したタイムアウトとリトライを有効にする。
+     */
+    const toLoadPolicy = (config, prefix) => {
+      const timeOut = config[`${prefix}LoadingTimeOut`];
+      const maxRetry = config[`${prefix}LoadingMaxRetry`];
+      const retryDelay = config[`${prefix}LoadingRetryDelay`];
+      const maxRetryDelayMs = config[`${prefix}LoadingMaxRetryTimeout`];
+      const retry = () => ({
+        maxNumRetry: maxRetry,
+        retryDelayMs: retryDelay,
+        maxRetryDelayMs
+      });
+      return {
+        default: {
+          maxTimeToFirstByteMs: timeOut,
+          maxLoadTimeMs: timeOut,
+          timeoutRetry: retry(),
+          errorRetry: retry()
+        }
+      };
+    };
+    DEFAULT_CONFIG.manifestLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'manifest');
+    DEFAULT_CONFIG.playlistLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'level');
+    DEFAULT_CONFIG.fragLoadPolicy = toLoadPolicy(DEFAULT_CONFIG, 'frag');
+
     DEFAULT_CONFIG.clone = (() => {
       return Object.assign({}, DEFAULT_CONFIG);
     });
@@ -863,9 +894,14 @@ const workerUtil = (() => {
             req.onupgradeneeded = e => {
               const db = e.target.result;
 
-              if(db.objectStoreNames.contains(this.name)) {
-                db.deleteObjectStore(this.name);
-              }
+              // this.name はDB名('zenza_hls')なので、ストア名と比較すると
+              // 常に false になり、既存ストアがある状態で upgrade すると
+              // createObjectStore が ConstraintError で失敗する
+              this.storeNames.forEach(name => {
+                if (db.objectStoreNames.contains(name)) {
+                  db.deleteObjectStore(name);
+                }
+              });
 
               const [meta] = this.storeNames;
               const store = db.createObjectStore(meta,
@@ -940,7 +976,7 @@ const workerUtil = (() => {
             req.onsuccess = e => {
               resolve(req.result);
             };
-            req.onerror = err => resolve;
+            req.onerror = err => resolve(0);
             if (timeout) {
               setTimeout(() => reject(`timeout: key${key}`), timeout);
             }
@@ -1087,8 +1123,9 @@ const workerUtil = (() => {
           }
         },
         async hasData(...args) {
-          const result = await IndexDBStorage.getInstance().hasData(...args);
-          return {result};
+          // {result} で包むと受け手側で常に truthy になり、
+          // キャッシュが無くても「ある」と判定されてしまう
+          return await IndexDBStorage.getInstance().hasData(...args);
         },
         async gc() {
           if (navigator && navigator.locks) {
@@ -1255,10 +1292,18 @@ const workerUtil = (() => {
 
         const frag2hash = fragment => {
           const url = fragment.url;
-          const levels = this.levels;
+          // FragmentLoaderClass.levels は _onHLSJSManifestParsed で入れている。
+          // ここは arrow function なので this は window (または undefined) になり、
+          // this.levels では絶対に取れない
+          const levels = FragmentLoaderClass && FragmentLoaderClass.levels;
 
-          const [path, videoId, level, sn] =
-              /\/nicovideo-([a-z0-9]+)_.*\/([\d]+)\/ts\/([\d]+)\.ts/.exec(url);
+          // 想定外のURL形式 (Domand の cmfv や将来の変更) で exec が null を返すと
+          // 分割代入が TypeError になり、fragment の読み込みが無言で止まる
+          const matched = /\/nicovideo-([a-z0-9]+)_.*\/([\d]+)\/ts\/([\d]+)\.ts/.exec(url);
+          if (!matched) {
+            return {hash: url, videoId: ''};
+          }
+          const [path, videoId, level, sn] = matched;
           let rel = '';
           if (fragment.levelkey && fragment.levelkey.reluri) {
             const m = /h=(.*?)&/.exec(fragment.levelkey.reluri);
@@ -1274,7 +1319,8 @@ const workerUtil = (() => {
 
         const hasCache = async fragment => {
           const {hash} = frag2hash(fragment);
-          return await Storage.hasData({hash});
+          // Storage.hasData は worker から boolean が返る
+          return !!(await Storage.hasData({hash}));
         };
 
         const preloadFragment = async (fragment, url) => {
@@ -1335,8 +1381,10 @@ const workerUtil = (() => {
               resp: { url },
               level,
               total: buffer.length,
-              stats,
-              url: context.url
+              // ここは preload なので hls.js の stats は存在しない。
+              // stats / context をそのまま参照すると ReferenceError になる
+              stats: null,
+              url
             }
           }, buffer);
           return true;
@@ -1416,9 +1464,11 @@ const workerUtil = (() => {
               // prototype.js のあるページでは動かないどころかブラクラ化する
               if (Config.get('enable_db_cache')) {
                 // console.log('***load', hash, Config.get('enable_db_cache'),window.Prototype);
-                const [meta, buffer] = await Storage.load({hash});
-                // console.log('cache?', !!meta, hash);
-                if (meta) {
+                // window.Prototype があるページでは sendRequest が null を返すので
+                // 分割代入すると TypeError になる
+                const cached = await Storage.load({hash});
+                if (cached) {
+                  const [meta, buffer] = cached;
                   frag.hasCache = true;
                   return callbacks.onSuccess(
                     {url: meta.url, data: buffer }, meta.stats, context, null);
@@ -1717,7 +1767,10 @@ const workerUtil = (() => {
         set currentTime(v) {
           if (this.playerMode === PLAYER_MODE.HLS_JS &&
             this._hlsConfig.autoStartLoad === false) {
-            this._hls.startLoad(v);
+            // capture 用で autoStartLoad: false の時。 hls が破棄済みなら何もしない
+            if (this._hls) {
+              this._hls.startLoad(v);
+            }
             return;
           }
 
@@ -1769,7 +1822,10 @@ const workerUtil = (() => {
           if (v === '' || v === '//') {
             this._src = '';
             this._destroyHLSJS();
-            this._video.src = '';
+            // video.src = '' は空文字が baseURL と連結されて
+            // ページ自体へのリクエストが発生する (NicoVideoPlayer.close のコメント参照)
+            this._video.removeAttribute('src');
+            this._video.load();
             this.playerMode = PLAYER_MODE.DEFAULT;
             return;
           }
@@ -1798,7 +1854,8 @@ const workerUtil = (() => {
         canPlayType(type) {
           switch(type) {
             case 'application/x-mpegURL':
-            case 'vnd.apple.mpegURL':
+            case 'application/vnd.apple.mpegurl':
+            case 'application/vnd.apple.mpegURL':
               return Hls.isSupported() ? 'maybe' : '';
             default:
               return this._video.canPlayType(type);
@@ -1905,8 +1962,10 @@ const workerUtil = (() => {
         }
 
         get _useNativeHLS() {
+          // createVideoElement は use_native_hls が true の時 'yes' を入れている。
+          // 'no' と比較していたため、Safari 等では設定と真逆の動作になっていた
           return !!this._video.canPlayType('application/x-mpegURL') &&
-            this.getAttribute('use-native-hls') === 'no';
+            this.getAttribute('use-native-hls') === 'yes';
         }
 
         set playerMode(v) {
@@ -1954,7 +2013,6 @@ const workerUtil = (() => {
             this._hls.detachMedia();
             this._hls.destroy();
             if (this._fragmentLoader) {
-              delete this._hlsConfig.fLoader;
               delete this._fragmentLoader;
             }
             this._hls = null;
@@ -1972,8 +2030,11 @@ const workerUtil = (() => {
               //setTimeout(() => {Storage.gc(); }, 30000);
             //}
             this._fragmentLoader = createFragmentLoader(Hls);
-            this._hlsConfig.fLoader = this._fragmentLoader;
-            const hls = new Hls(this._hlsConfig);
+            // hls.config には fLoader をそのまま書かず、このインスタンス用の
+            // 設定オブジェクトを渡す (共有 hlsConfig を汚さないため)
+            const hls = new Hls(Object.assign({}, this._hlsConfig, {
+              fLoader: this._fragmentLoader
+            }));
             this._hls = hls;
 
             this._hls.on(Hls.Events.MANIFEST_PARSED,
@@ -1992,7 +2053,10 @@ const workerUtil = (() => {
               this._onHLSJSBufferEOS.bind(this));
             this.dispatchEvent(new CustomEvent('init-hls-js', {detail: {hls: hls}}));
             this._hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-              this._hls.loadSource(src);
+              // src が差し替えられて this._hls が別インスタンスになっていたら
+              // 古いインスタンスの src を新しい方に読ませてしまうので無視する
+              if (this._hls !== hls) { return; }
+              hls.loadSource(src);
             });
             // overrideKeyloader(hls);
             this._hls.attachMedia(this._video);
@@ -2006,6 +2070,8 @@ const workerUtil = (() => {
           this._levelData = [];
           if (this._fragmentLoader) {
             this._fragmentLoader.levels = data.levels;
+            // frag2hash は arrow function なので instance の this は見れない
+            FragmentLoaderClass.levels = data.levels;
           }
           this.dispatchEvent(new Event('loadedmetadata'));
           this.dispatchEvent(new Event('canplay'));
@@ -2138,7 +2204,9 @@ const workerUtil = (() => {
 
           const event = new ErrorEvent('error');
           this._error = {
-            code: HLS_ERROR_CODE.UNKNOWN,
+            // せっかく data.type から求めた code を使わず定数にしていたため、
+            // どの fatal エラーも MEDIA_ERR_SRC_NOT_SUPPORTED として通知されていた
+            code,
             message: data.details
           };
           this.dispatchEvent(overrideTarget(event, this));
@@ -2159,14 +2227,22 @@ const workerUtil = (() => {
         window.customElements.define('zenza-video', ZenzaVideoElement);
       }
       if (!Hls) {
-        const s = document.createElement('script');
-        s.onload = () => {
+        // hls.js の読み込みはこのIIFEの直前で #HLSJS_Loader として一度だけ行っている。
+        // ここで再度 <script> を挿入すると二重ロードになるので、その完了を待つだけにする。
+        const onHlsLoaded = () => {
           Hls = window.Hls;
-          console.info('hls.js loaded:', window.Hls.version);
+          console.info('hls.js loaded:', Hls && Hls.version);
         };
-        s.src = `https://cdn.jsdelivr.net/npm/hls.js@${Config.get('hls_js_ver')}`;
-        // console.info('load hls.js from', s.src);
-        (document.head || document.documentElement).append(s);
+        if (window.Hls) {
+          onHlsLoaded();
+        } else {
+          const loader = document.getElementById('HLSJS_Loader');
+          if (loader) {
+            loader.addEventListener('load', onHlsLoaded, {once: true});
+          } else {
+            console.warn('hls.js is not loaded');
+          }
+        }
       } else {
         console.info('hls.js ready:', window.Hls.version);
       }
@@ -2547,7 +2623,8 @@ const workerUtil = (() => {
         reset(config) {
           if (!this._shadow) { return; }
           Object.keys(this._elm).forEach(key => {
-            if (config && config[key]) {
+            // false や 0 の設定値も既定値として反映する (config[key] の真偽で判定しない)
+            if (config && key in config) {
               this._elm[key].defaultValue = config[key];
             }
             this._elm[key].reset();
@@ -2964,7 +3041,9 @@ const workerUtil = (() => {
       console.log('%cinit ZenzaWatch HLS', 'background: cyan');
 
       const hlsConfig = Object.assign({}, Config.raw);
-      Config.on('update', (key, value) => {
+      // Config.set は emitter.emit('update', {key, value}) なので、
+      // (key, value) で受けると hlsConfig に '[object Object]' が入るだけになる
+      Config.on('update', ({key, value}) => {
         hlsConfig[key] = value;
       });
 
@@ -2978,7 +3057,10 @@ const workerUtil = (() => {
           //return null;
           // 静止画キャプチャ用なのにどんどんバッファするのは無駄なので抑える
           video.setAttribute('data-usecase', 'capture');
-          video.hlsConfig = Object.assign(hlsConfig, {
+          // 共有オブジェクト hlsConfig を直接書き換えると、
+          // 以降に作る通常再生用の hls インスタンスまで capture 用設定
+          // (autoStartLoad: false など) を引き継いで再生が始まらなくなる
+          video.hlsConfig = Object.assign({}, hlsConfig, {
             autoStartLoad: false,
             // maxBufferSize: 0,
             // maxBufferLength: 5,
@@ -3051,7 +3133,10 @@ const workerUtil = (() => {
   };
 
   try {
-    if (Hls) {
+    // @require がブロックされていると Hls は未定義のグローバルになる。
+    // そのまま if (Hls) と書くと ReferenceError になり、
+    // 下のローダー挿入 (エラー表示つき) が catch に飲み込まれて実行されない。
+    if (typeof Hls !== 'undefined' && Hls) {
       console.log('hls.js@%s required', Hls.version);
       window.Hls = Hls;
     } else

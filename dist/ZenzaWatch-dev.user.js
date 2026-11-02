@@ -6270,7 +6270,7 @@ const CacheStorage = (() => {
 const VideoInfoLoader = (function () {
 	const cacheStorage = new CacheStorage(sessionStorage);
 	const parseWatchV3ApiData = (json) => {
-		const _data = json.data.response;
+		const _data = json?.data?.response;
 		if (_data == null) {
 			return
 		}
@@ -6456,7 +6456,7 @@ const VideoInfoLoader = (function () {
 		};
 	};
 	const parseWatchV4ApiData = (json) => {
-		const _data = json.data.response.$watchV4?.data;
+		const _data = json?.data?.response?.$watchV4?.data;
 		if (_data == null) {
 			return
 		}
@@ -6558,10 +6558,7 @@ const VideoInfoLoader = (function () {
 			name: owner?.name,
 			iconUrl: owner?.iconUrl,
 		};
-		const {
-			contents: domandContent,
-			...domandInfo
-		} = media;
+		const domandInfo = media == null ? null : (({contents, ...info}) => ({...contents, ...info}))(media);
 		return {
 			_version: "4",
 			_data,
@@ -6615,10 +6612,7 @@ const VideoInfoLoader = (function () {
 				title,
 				isLiked,
 			},
-			domandInfo: {
-				...domandContent,
-				...domandInfo,
-			},
+			domandInfo,
 			ownerInfo,
 			viewerInfo,
 			resumeInfo,
@@ -6652,7 +6646,40 @@ const VideoInfoLoader = (function () {
 				});
 			});
 	};
+	const loadTagsWithNicodicStatus = ({videoId, editKey, language}) => {
+		if (!editKey) {
+			return Promise.resolve(null);
+		}
+		return new TagEditApi().load(videoId, editKey, language)
+			.then(data => data?.tags ?? null)
+			.catch(err => {
+				window.console.warn('タグの大百科情報の取得に失敗', err);
+				return null;
+			});
+	};
+	const mergeNicodicStatus = (tags, tagsWithNicodicStatus) => {
+		if (!tagsWithNicodicStatus) {
+			return tags;
+		}
+		const status = new Map(tagsWithNicodicStatus.map(tag => [tag.name, tag.isNicodicArticleExists]));
+		return tags.map(tag => status.has(tag.name) ? {...tag, isNicodicArticleExists: status.get(tag.name)} : tag);
+	};
+	const WATCH_ERROR_MESSAGES = {
+		NOT_FOUND: '動画が見つかりません',
+		ADMINISTRATOR_DELETE_VIDEO: '動画は削除されています',
+		RIGHT_HOLDER_DELETE_VIDEO: '動画は権利者により削除されています',
+		HIDDEN_VIDEO: '動画は非表示に設定されています',
+		PRIVATE_VIDEO: '非公開動画です',
+	};
 	const parseWatchApiData = async (json) => {
+		const errorResponse = json?.data?.response;
+		if (errorResponse?.errorCode) {
+			const {statusCode, errorCode, reasonCode} = errorResponse;
+			throw {
+				reason: statusCode === 403 ? 'forbidden' : 'not found',
+				message: WATCH_ERROR_MESSAGES[reasonCode] ?? `この動画は再生できません (${reasonCode || errorCode})`,
+			};
+		}
 		const _data = parseWatchV4ApiData(json) ?? parseWatchV3ApiData(json);
 		if (_data == null) {
 			throw {
@@ -6661,12 +6688,24 @@ const VideoInfoLoader = (function () {
 			};
 		}
 		if (_data._version === "4") {
-			_data._lazy = await loadWatchV4Lazy({
-				videoId: _data.video.id,
-				token: _data.lazy.authKey,
-				trackId: _data.client.watchTrackId,
-			});
-			_data.series = _data._lazy.series;
+			const [lazy, tagsWithNicodicStatus] = await Promise.all([
+				loadWatchV4Lazy({
+					videoId: _data.video.id,
+					token: _data.lazy.authKey,
+					trackId: _data.client.watchTrackId,
+				}).catch(err => {
+					window.console.warn('loadWatchV4Lazy fail', err);
+					return null;
+				}),
+				loadTagsWithNicodicStatus({
+					videoId: _data.video.id,
+					editKey: _data.tagEdit?.editKey,
+					language: _data.comment?.nvComment?.params?.language,
+				}),
+			]);
+			_data._lazy = lazy;
+			_data.series = lazy?.series ?? null;
+			_data.tags = mergeNicodicStatus(_data.tags, tagsWithNicodicStatus);
 		}
 		const csrfToken = null;
 		const watchAuthKey = null;
@@ -8671,7 +8710,7 @@ const {NicoSearchApiV2Query, NicoSearchApiV2Loader} =
 		return {NicoSearchApiV2Query, NicoSearchApiV2Loader};
 	})();
 class TagEditApi {
-	load(videoId, editKey) {
+	load(videoId, editKey, language = 'ja-jp') {
 		const url = `https://nvapi.nicovideo.jp/v2/videos/${videoId}/tags`;
 		const options = {
 			method: 'GET',
@@ -8681,7 +8720,7 @@ class TagEditApi {
 					'X-Frontend-Id': 6,
 					'X-Frontend-Version': 0,
 					'X-Request-With': 'https://www.nicovideo.jp',
-					'X-Niconico-Language': 'ja-jp',
+					'X-Niconico-Language': language,
 					'X-Tag-Edit-Key': editKey,
 				}
 		};
@@ -8980,6 +9019,83 @@ ZenzaWatch.api.StoryboardInfoLoader = StoryboardInfoLoader;
 const {ThreadLoader} = (() => {
 	const FRONT_ID = '6';
 	const FRONT_VER = '0';
+	const CLIENT_OS_TYPE = 'others';
+	const NVAPI_COMMENT_KEYS = 'https://nvapi.nicovideo.jp/v1/comment/keys';
+	const keyUrl = (type, params) => `${NVAPI_COMMENT_KEYS}/${type}?${new URLSearchParams({...params, pc: 1})}`;
+	const commentServerUrl = (path, server) => {
+		const url = new URL(path, server);
+		url.searchParams.set('pc', '1');
+		return url;
+	};
+	const COMMENT_SERVER_HEADERS = {
+		'X-Frontend-Id': FRONT_ID,
+		'X-Frontend-Version': FRONT_VER,
+		'X-Client-Os-Type': CLIENT_OS_TYPE,
+		'Content-Type': 'text/plain; charset=UTF-8'
+	};
+	const parseCommands = cmd => [...new Set((cmd || '').split(/\s+/).filter(c => c))];
+	const TURNSTILE_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+	const CHALLENGE_TIMEOUT_MS = 3 * 60 * 1000;
+	let turnstileLoader = null;
+	const loadTurnstile = () => {
+		if (window.turnstile) {
+			return Promise.resolve(window.turnstile);
+		}
+		if (!turnstileLoader) {
+			turnstileLoader = new Promise((resolve, reject) => {
+				const script = document.createElement('script');
+				script.src = TURNSTILE_URL;
+				script.async = true;
+				script.onload = () => window.turnstile ?
+					resolve(window.turnstile) : reject(new Error('turnstile is not available'));
+				script.onerror = () => reject(new Error('turnstile load error'));
+				(document.head || document.documentElement).append(script);
+			}).catch(err => {
+				turnstileLoader = null;
+				throw err;
+			});
+		}
+		return turnstileLoader;
+	};
+	const solveChallenge = async siteKey => {
+		const turnstile = await loadTurnstile();
+		const container = document.createElement('div');
+		container.className = 'zenzaTurnstileContainer';
+		Object.assign(container.style, {
+			position: 'fixed',
+			top: '50%',
+			left: '50%',
+			transform: 'translate(-50%, -50%)',
+			zIndex: '2147483647'
+		});
+		(document.fullscreenElement || document.body).append(container);
+		let widgetId;
+		try {
+			return await new Promise((resolve, reject) => {
+				const timer = window.setTimeout(() => reject(new Error('turnstile timeout')), CHALLENGE_TIMEOUT_MS);
+				const settle = (fn, value) => {
+					window.clearTimeout(timer);
+					fn(value);
+				};
+				widgetId = turnstile.render(container, {
+					sitekey: siteKey,
+					size: 'normal',
+					appearance: 'interaction-only',
+					'before-interactive-callback': () =>
+						PopupMessage.notify('コメント投稿の前に認証が必要です。画面中央の認証を完了してください'),
+					callback: token => settle(resolve, token),
+					'error-callback': code => settle(reject, new Error(`turnstile error ${code}`)),
+					'timeout-callback': () => settle(reject, new Error('turnstile timeout')),
+					'unsupported-callback': () => settle(reject, new Error('turnstile unsupported'))
+				});
+			});
+		} finally {
+			if (widgetId !== undefined) {
+				turnstile.remove(widgetId);
+			}
+			container.remove();
+		}
+	};
 	const FORK_LABEL = {
 		0: 'main',
 		1: 'owner',
@@ -8991,7 +9107,7 @@ const {ThreadLoader} = (() => {
 			this._threadKeys = {};
 		}
 		async getThreadKey(videoId, options = {}) {
-			let url = `https://nvapi.nicovideo.jp/v1/comment/keys/thread?videoId=${videoId}`;
+			const url = keyUrl('thread', {videoId});
 			console.log('getThreadKey url: ', url);
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
@@ -9011,7 +9127,7 @@ const {ThreadLoader} = (() => {
 			}
 		}
 		async getPostKey(threadId, options = {}) {
-			const url = `https://nvapi.nicovideo.jp/v1/comment/keys/post?threadId=${threadId}`;
+			const url = keyUrl('post', {threadId});
 			console.log('getPostKey url: ', url);
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
@@ -9033,11 +9149,7 @@ const {ThreadLoader} = (() => {
 			try {
 				const { meta } = await netUtil.fetch(url, {
 					method: 'PUT',
-					headers: {
-						'X-Frontend-Id': FRONT_ID,
-						'X-Frontend-Version': FRONT_VER,
-						'Content-Type': 'text/plain; charset=UTF-8'
-					},
+					headers: COMMENT_SERVER_HEADERS,
 					body
 				}).then(res => res.json());
 				if (meta.status >= 300) {
@@ -9054,11 +9166,7 @@ const {ThreadLoader} = (() => {
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
 					method: 'POST',
-					headers: {
-						'X-Frontend-Id': FRONT_ID,
-						'X-Frontend-Version': FRONT_VER,
-						'Content-Type': 'text/plain; charset=UTF-8'
-					},
+					headers: COMMENT_SERVER_HEADERS,
 					body
 				}).then(res => res.json());
 				if (meta.status >= 300) {
@@ -9094,16 +9202,12 @@ const {ThreadLoader} = (() => {
 			if (msgInfo.when > 0) {
 				packet.additionals.when = msgInfo.when;
 			}
-			const url = new URL('/v1/threads', server);
+			const url = commentServerUrl('/v1/threads', server);
 			console.log('load threads...', url, packet);
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
 					method: 'POST',
-					headers: {
-						'X-Frontend-Id': FRONT_ID,
-						'X-Frontend-Version': FRONT_VER,
-						'Content-Type': 'text/plain; charset=UTF-8'
-					},
+					headers: COMMENT_SERVER_HEADERS,
 					body: JSON.stringify(packet)
 				}).then(res => res.json());
 				if (meta.status >= 300) {
@@ -9171,14 +9275,25 @@ const {ThreadLoader} = (() => {
 				threadId,
 				language
 			} = msgInfo.threadInfo;
-			const url = new URL(`/v1/threads/${threadId}/comments`, msgInfo.nvComment.server);
-			const { postKey } = await this.getPostKey(threadId, { language });
+			const url = commentServerUrl(`/v1/threads/${threadId}/comments`, msgInfo.nvComment.server);
+			const { postKey, challenge } = await this.getPostKey(threadId, { language });
+			let challengeToken;
+			if (challenge?.isRequired && challenge.siteKey) {
+				challengeToken = await solveChallenge(challenge.siteKey).catch(err => {
+					window.console.error('challenge fail', err);
+					throw {
+						status: 'fail',
+						message: 'コメント投稿失敗 (認証に失敗しました)'
+					};
+				});
+			}
 			const packet = JSON.stringify({
 				body: text,
-				commands: cmd?.split(/[\x20\xA0\u3000\t\u2003\s]+/) ?? [],
-				vposMs: Math.floor((vpos || 0) * 10),
+				commands: parseCommands(cmd),
+				vposMs: Math.max(0, Math.floor((vpos || 0) * 10)),
 				postKey,
 				videoId,
+				challengeToken,
 			});
 			console.log('post packet: ', packet);
 			try {
@@ -9190,28 +9305,19 @@ const {ThreadLoader} = (() => {
 					message: 'コメント投稿成功'
 				};
 			} catch (error) {
-				const { result: { status: statusCode, errorCode } } = error;
-				if (statusCode == null) {
-					throw {
-						status: 'fail',
-						message: `コメント投稿失敗`
-					};
-				}
+				const { status: statusCode, errorCode } = error.result ?? {};
 				if (!retrying && ['INVALID_TOKEN', 'EXPIRED_TOKEN'].includes(errorCode)) {
-					await this.load(msgInfo);
-				} else {
-					throw {
-						status: 'fail',
-						statusCode,
-						message: errorCode ? `コメント投稿失敗 ${errorCode}` : 'コメント投稿失敗'
-					};
+					return await this.postChat(msgInfo, text, cmd, vpos, true);
 				}
-				await sleep(3000);
-				return await this.postChat(msgInfo, text, cmd, vpos, true)
+				throw {
+					status: 'fail',
+					statusCode,
+					message: errorCode ? `コメント投稿失敗 ${errorCode}` : 'コメント投稿失敗'
+				};
 			}
 		}
 		async getDeleteKey(threadId, options = {}) {
-			const url = `https://nvapi.nicovideo.jp/v1/comment/keys/delete?threadId=${threadId}&fork=${options.fork || 'main'}`;
+			const url = keyUrl('delete', {threadId, fork: options.fork || 'main'});
 			console.log('getNicoruKey url: ', url);
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
@@ -9236,7 +9342,7 @@ const {ThreadLoader} = (() => {
 				threadId,
 				language
 			} = msgInfo.threadInfo;
-			const url = new URL(`/v1/threads/${threadId}/comment-comment-owner-deletions`, msgInfo.nvComment.server);
+			const url = commentServerUrl(`/v1/threads/${threadId}/comment-comment-owner-deletions`, msgInfo.nvComment.server);
 			const fork = FORK_LABEL[chat.fork || 0];
 			const { deleteKey } = await this.getDeleteKey(threadId, { language, fork });
 			const packet = JSON.stringify({
@@ -9266,7 +9372,7 @@ const {ThreadLoader} = (() => {
 			}
 		}
 		async getNicoruKey(threadId, options = {}) {
-			const url = `https://nvapi.nicovideo.jp/v1/comment/keys/nicoru?threadId=${threadId}`;
+			const url = keyUrl('nicoru', {threadId, fork: options.fork || 'main'});
 			console.log('getNicoruKey url: ', url);
 			try {
 				const { meta, data } = await netUtil.fetch(url, {
@@ -9291,11 +9397,12 @@ const {ThreadLoader} = (() => {
 				threadId,
 				language
 			} = msgInfo.threadInfo;
-			const url = new URL(`/v1/threads/${threadId}/nicorus`, msgInfo.nvComment.server);
-			const { nicoruKey } = await this.getNicoruKey(threadId, { language });
+			const url = commentServerUrl(`/v1/threads/${threadId}/nicorus`, msgInfo.nvComment.server);
+			const fork = FORK_LABEL[chat.fork || 0];
+			const { nicoruKey } = await this.getNicoruKey(threadId, { language, fork });
 			const packet = JSON.stringify({
 				content: chat.text,
-				fork: FORK_LABEL[chat.fork || 0],
+				fork,
 				no: chat.no,
 				nicoruKey,
 				videoId,
@@ -26095,14 +26202,13 @@ class NicoVideoPlayerDialog extends Emitter {
 			return Promise.reject();
 		}
 		const threadId = this._threadInfo.threadId * 1;
-		if (this._threadInfo.force184 !== '1') {
+		if (!this._threadInfo.is184Forced) {
 			cmd = cmd ? ('184 ' + cmd) : '184';
 		}
 		Object.assign(options, {isMine: true, isUpdating: true, thead: threadId});
 		vpos = (!isNaN(vpos) && typeof vpos === 'number') ? vpos : this._nicoVideoPlayer.vpos;
 		const nicoChat = this._nicoVideoPlayer.addChat(text, cmd, vpos, options);
 		this._state.isCommentPosting = true;
-		const lang = this._playerConfig.props.commentLanguage;
 		window.console.time('コメント投稿');
 		const onSuccess = result => {
 			window.console.timeEnd('コメント投稿');
@@ -26128,7 +26234,7 @@ class NicoVideoPlayerDialog extends Emitter {
 			return Promise.reject(err);
 		};
 		const msgInfo = this._videoInfo.msgInfo;
-		return this.threadLoader.postChat(msgInfo, text, cmd, vpos, lang)
+		return this.threadLoader.postChat(msgInfo, text, cmd, vpos)
 			.then(onSuccess).catch(onFail);
 	}
 	removeChat(chat) {
@@ -27634,18 +27740,14 @@ class TagListView extends BaseViewComponent {
 		});
 	}
 	_createDicIcon(text, hasDic) {
-		let href = `https://dic.nicovideo.jp/a/${encodeURIComponent(text)}`;
-		let src = hasDic ?
-			'https://live.nicovideo.jp/img/2012/watch/tag_icon002.png' :
-			'https://live.nicovideo.jp/img/2012/watch/tag_icon003.png' ;
-		let icon = `<img class="dicIcon" src="${src}">`;
-		let hasNicodic = hasDic ? 1 : 0;
+		const href = `https://dic.nicovideo.jp/a/${encodeURIComponent(text)}`;
+		const hasNicodic = hasDic ? 1 : 0;
 		return (
 			`<zenza-tag-item-menu
 				class="tagItemMenu"
 				data-text="${encodeURIComponent(text)}"
 				data-has-nicodic="${hasNicodic}"
-			><a target="_blank" class="nicodic" href="${href}">${icon}</a></zenza-tag-item-menu>`
+			><a target="_blank" class="nicodic" href="${href}" title="大百科を見る">百</a></zenza-tag-item-menu>`
 		);
 	}
 	_createDeleteButton(id) {
@@ -27947,9 +28049,6 @@ TagListView.__shadow__ = (`
 			}
 			.is-Editing .tagLink {
 				pointer-events: none;
-			}
-			.is-Editing .dicIcon {
-				display: none;
 			}
 			.tagItem:not(.is-Locked) {
 				transition: transform 0.2s, text-shadow 0.2s;
@@ -30829,6 +30928,16 @@ const initializeGinzaSlayer = (dialog, query) => {
 };
 
 const {initialize} = (() => {
+const VIDEO_LINK_SELECTOR = [
+	'a[href*="watch/"]',
+	'a[href*="shorts/"]',
+	'a[href*="nico.ms/"]',
+	'[data-anchor-href*="watch/"]',
+	'[data-anchor-href*="shorts/"]',
+	'.UadVideoItem-link'
+].join(',');
+const INTERACTIVE_SELECTOR = 'a[href],button,input,select,textarea,label,[role="button"],[role="menuitem"]';
+const WATCH_HOSTS = ['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'];
 class HoverMenu {
 	constructor(param) {
 		this.initialize(param);
@@ -30838,21 +30947,21 @@ class HoverMenu {
 		const $view = this._$view = uq(
 			'<zen-button class="ZenButton"><div class="ZenButtonInner scalingUI">Zen</div></zen-button>'
 		);
-		if (!nicoUtil.isGinzaWatchUrl() &&
-			this._playerConfig.props.overrideWatchLink &&
-			location && location.host.endsWith('.nicovideo.jp')) {
-			this._overrideWatchLink();
-		} else {
-			this._onHoverEnd = _.debounce(this._onHoverEnd.bind(this), 500);
-			$view.on(
-				location.host.includes('google') ? 'mouseup' : 'click', this._onClick.bind(this));
-			ZenzaWatch.emitter.on('hideHover', () => $view.removeClass('show'));
-			uq('body')
-				.on('mouseover', this._onHover.bind(this))
-				.on('mouseover', this._onHoverEnd)
-				.on('mouseout', this._onMouseout.bind(this))
-				.append($view);
-		}
+		this._onHoverEnd = _.debounce(this._onHoverEnd.bind(this), 500);
+		$view.on(
+			location.host.includes('google') ? 'mouseup' : 'click', this._onClick.bind(this));
+		ZenzaWatch.emitter.on('hideHover', () => $view.removeClass('show'));
+		uq('body')
+			.on('mouseover', this._onHover.bind(this))
+			.on('mouseover', this._onHoverEnd)
+			.on('mouseout', this._onMouseout.bind(this))
+			.append($view);
+		window.addEventListener('click', this._onLinkClick.bind(this), true);
+	}
+	get isOverrideWatchLink() {
+		return !!this._playerConfig.props.overrideWatchLink &&
+			location.host.endsWith('.nicovideo.jp') &&
+			!nicoUtil.isGinzaWatchUrl();
 	}
 	setPlayer(player) {
 		this._player = player;
@@ -30871,43 +30980,66 @@ class HoverMenu {
 		}
 		return this._playerPromise;
 	}
-	_closest(target) {
-		return target.closest('a[href*="watch/"],a[href*="shorts/"],a[href*="nico.ms/"],.UadVideoItem-link');
+	_findVideoLink(target) {
+		if (!(target instanceof Element)) {
+			return null;
+		}
+		const link = target.closest(VIDEO_LINK_SELECTOR);
+		if (!link || link.classList.contains('noHoverMenu')) {
+			return null;
+		}
+		const interactive = target.closest(INTERACTIVE_SELECTOR);
+		if (interactive && interactive !== link && link.contains(interactive)) {
+			return null;
+		}
+		return link;
+	}
+	_parseVideoLink(link) {
+		const href = link.dataset.href || link.getAttribute('href') || link.dataset.anchorHref;
+		if (!href) {
+			return null;
+		}
+		let url;
+		try {
+			url = new URL(href, location.href);
+		} catch (e) {
+			return null;
+		}
+		if (!WATCH_HOSTS.includes(url.hostname)) {
+			return null;
+		}
+		const watchId = nicoUtil.getWatchId(url.href);
+		if (!watchId || !/^[a-z0-9]+$/.test(watchId) || watchId.startsWith('lv')) {
+			return null;
+		}
+		return {watchId, query: nicoUtil.parseWatchQuery(url.search.substring(1))};
 	}
 	_onHover (e) {
-		const target = this._closest(e.target);
+		if (this.isOverrideWatchLink) {
+			return;
+		}
+		const target = this._findVideoLink(e.target);
 		if (target) {
 			this._hoverElement = target;
 		}
 	}
 	_onMouseout (e) {
-		if (this._hoverElement === this._closest(e.target)) {
+		if (this._hoverElement === this._findVideoLink(e.target)) {
 			this._hoverElement = null;
 		}
 	}
 	_onHoverEnd (e) {
-		if (!this._hoverElement) { return; }
-		const target = this._closest(e.target);
-		if (this._hoverElement !== target) {
+		if (!this._hoverElement || this.isOverrideWatchLink) { return; }
+		const target = this._findVideoLink(e.target);
+		if (!target || this._hoverElement !== target) {
 			return;
 		}
-		if (!target || target.classList.contains('noHoverMenu')) {
+		const info = this._parseVideoLink(target);
+		if (!info) {
 			return;
 		}
-		let href = target.dataset.href || target.href;
-		let watchId = nicoUtil.getWatchId(href);
-		let host = target.hostname;
-		if (!['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'].includes(host)) {
-			return;
-		}
-		this._query = nicoUtil.parseWatchQuery((target.search || '').substr(1));
-		if (!watchId || !watchId.match(/^[a-z0-9]+$/)) {
-			return;
-		}
-		if (watchId.startsWith('lv')) {
-			return;
-		}
-		this._watchId = watchId;
+		this._query = info.query;
+		this._watchId = info.watchId;
 		const offset = target.getBoundingClientRect();
 		this._$view.css({
 			top: cssUtil.px(offset.top + window.pageYOffset),
@@ -30949,73 +31081,26 @@ class HoverMenu {
 		await this._getPlayer();
 		ZenzaWatch.external.send(watchId, Object.assign({query: this._query}, params));
 	}
-	_overrideWatchLink () {
-		let userPageIntercept;
-		if (document.querySelector('.UserPageHeader') != null) {
-			console.nicoru('user page');
-			const blockNavigation = e => {
-				if (e.ctrlKey) { return; }
-				e.preventDefault();
-			};
-			userPageIntercept = e => {
-				const target = e.target;
-				if (target.tagName !== 'A' || !target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
-					return;
-				}
-				target.removeEventListener('click', blockNavigation);
-				target.addEventListener('click', blockNavigation);
-			}
+	_onLinkClick (e) {
+		if (e.button !== 0 || e.ctrlKey || e.metaKey || !this.isOverrideWatchLink) {
+			return;
 		}
-		const requireIntercepts = [];
-		if (location.pathname.startsWith('/ranking') || location.pathname.startsWith('/search') || location.pathname.startsWith('/tag')) {
-			console.nicoru('ranking/search/tag page');
-			requireIntercepts.push(e => {
-				const target = e.target.closest('button');
-				return target != null && this._closest(target) != null;
-			});
+		const target = this._findVideoLink(e.target);
+		const info = target && this._parseVideoLink(target);
+		if (!info) {
+			return;
 		}
-		const onClick = e => {
-			if (e.ctrlKey) { return; }
-			const target = this._closest(e.target);
-			if (!target || target.classList.contains('noHoverMenu')) {
-				return;
-			}
-			let href = target.dataset.href || target.href;
-			let watchId = nicoUtil.getWatchId(href);
-			if (!watchId || !watchId.match(/^[a-z0-9]+$/)) {
-				return;
-			}
-			if (watchId.startsWith('lv')) {
-				return;
-			}
-			if (target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
-				e.stopPropagation();
-			}
-			e.preventDefault();
-			this._query = nicoUtil.parseWatchQuery((target.search || '').substr(1));
-			if (e.shiftKey) {
-				this._send(watchId);
-			} else {
-				this._open(watchId);
-			}
-			window.setTimeout(() => ZenzaWatch.emitter.emit('hideHover'), 1500);
-		};
-		uq('body').on('mouseover', e => {
-			userPageIntercept?.(e);
-			const target = this._closest(e.target);
-			if (!target || target.classList.contains('noHoverMenu')) {
-				return;
-			}
-			let host = target.hostname;
-			if (!['www.nicovideo.jp', 'sp.nicovideo.jp', 'nico.ms'].includes(host)) {
-				return;
-			}
-			target.removeEventListener('click', onClick);
-			if (requireIntercepts.length > 0 && requireIntercepts.some(f => f(e))) {
-				return;
-			}
-			target.addEventListener('click', onClick);
-		});
+		e.preventDefault();
+		if (target.closest('.TimelineItem_video,.TimelineItem_shortVideo')) {
+			e.stopPropagation();
+		}
+		this._query = info.query;
+		if (e.shiftKey) {
+			this._send(info.watchId);
+		} else {
+			this._open(info.watchId);
+		}
+		window.setTimeout(() => ZenzaWatch.emitter.emit('hideHover'), 1500);
 	}
 }
 	const overrideGinza = async (dialog, query) => {
