@@ -1289,7 +1289,8 @@ AntiPrototypeJs().then(() => {
         canPlayType(type) {
           switch(type) {
             case 'application/x-mpegURL':
-            case 'vnd.apple.mpegURL':
+            case 'application/vnd.apple.mpegurl':
+            case 'application/vnd.apple.mpegURL':
               return Hls.isSupported() ? 'maybe' : '';
             default:
               return this._video.canPlayType(type);
