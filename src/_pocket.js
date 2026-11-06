@@ -4030,8 +4030,11 @@ const emitter = util.emitter;
       }
 
       if (document.querySelector('a[data-anchor-page^="ranking_"]') != null) {
-        for (const tagName of ngConfig.props.tag.trim().split(/[\r\n]/)) {
-          util.addStyle(hideTagCss(tagName));
+        // NG が無効なときは ngConfig がない
+        if (ngConfig) {
+          for (const tagName of ngConfig.props.tag.trim().split(/[\r\n]/)) {
+            util.addStyle(hideTagCss(tagName));
+          }
         }
         if (config.props.responsive.matrix) {
           util.addStyle(responsiveCss);
