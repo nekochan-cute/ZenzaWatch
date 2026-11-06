@@ -56,6 +56,10 @@ const nicoUtil = {
     if (!videoIdReg.test(videoId)) {
       return null;
     }
+    if (videoId.startsWith('ss')) {
+      // ショート動画のサムネイルはIDからURLを組み立てられない
+      return null;
+    }
     const fileId = parseInt(videoId.substr(2), 10);
     const large = nicoUtil.hasLargeThumbnail(videoId) ? '.L' : '';
     return fileId >= 35374758 ? // このIDから先は新サーバー(おそらく)
