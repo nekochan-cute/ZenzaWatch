@@ -50,37 +50,78 @@ const {initialize} = (() => {
     await uq.complete();
 
     // 再生を無理やり止める
-    const stopPlayer = (ev) => {
-      if (!document.body.classList.contains('showNicoVideoPlayerDialog')) return;
-
+    const isZenzaPlaying = () => {
+      if (!document.body.classList.contains('showNicoVideoPlayerDialog')) {
+        return false;
+      }
       // 画面モードが横か小のときには止めない
-      if (/(^|[^\w])zenzaScreenMode_(small|sideView)([^\w]|$)/.test(document.body.className)) return;
+      return !/(^|[^\w])zenzaScreenMode_(small|sideView)([^\w]|$)/.test(document.body.className);
+    };
 
+    const stopPlayer = (ev) => {
+      if (!isZenzaPlaying()) {
+        return;
+      }
       ev.target.pause();
     };
-    const video = document.querySelector('.grid-area_\\[player\\] video');
-    if (video !== null) {
+
+    // 公式プレイヤーのDOM構造はページの種類によって変わる
+    // (動画ページは .grid-area_[player]、ショートページは .PlayerPresenter) ので、
+    // #root 配下の video をすべて対象にする。
+    // ZenzaWatch 自身の video は shadow DOM の中にあるので getRootNode() で区別できる。
+    const isOfficialVideo = video =>
+      video.getRootNode() === document &&
+      !!document.getElementById('root')?.contains(video);
+
+    // ショート動画のページの公式プレイヤーは pause された直後に何度も play し直してくるので、
+    // 再生開始そのものを無視する。ZenzaWatch を閉じれば元に戻る。
+    if (!HTMLMediaElement.__zenzaPlayBlocked) {
+      HTMLMediaElement.__zenzaPlayBlocked = true;
+      const nativePlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function () {
+        if (isOfficialVideo(this) && isZenzaPlaying()) {
+          return Promise.resolve();
+        }
+        return nativePlay.call(this);
+      };
+    }
+
+    const watchedVideos = new WeakSet();
+    const watchVideo = video => {
+      if (watchedVideos.has(video)) {
+        return;
+      }
+      watchedVideos.add(video);
       video.addEventListener('play', stopPlayer);
-      video.pause();
+      if (!video.paused) {
+        video.pause();
+      }
+    };
+    const watchVideosIn = node => {
+      if (!(node instanceof Element)) {
+        return;
+      }
+      if (node.tagName === 'VIDEO') {
+        watchVideo(node);
+        return;
+      }
+      node.querySelectorAll('video').forEach(watchVideo);
+    };
+
+    const root = document.getElementById('root');
+    if (root == null) {
       return;
     }
 
-    new MutationObserver((records, observer) => {
+    watchVideosIn(root);
+    // ショート動画のページはSPAで次の動画が後から追加されるので監視を続ける
+    new MutationObserver(records => {
       for (const record of records) {
-        if(record.addedNodes.length === 0) {
-          continue;
+        for (const node of record.addedNodes) {
+          watchVideosIn(node);
         }
-
-        const video = record.target.querySelector('.grid-area_\\[player\\] video');
-        if (video === null) {
-          continue;
-        }
-
-        video.addEventListener('play', stopPlayer);
-        video.pause();
-        observer.disconnect();
       }
-    }).observe(document.getElementById('root'), {
+    }).observe(root, {
       childList: true,
       subtree: true,
     });
