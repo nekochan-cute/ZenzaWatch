@@ -2,6 +2,7 @@ import {ZenzaWatch, global} from './ZenzaWatchIndex';
 import {CONSTANT} from './constant';
 import {Config} from './Config';
 import {UaaLoader} from '../packages/lib/src/nico/loader';
+import {CommonsTreeLoader} from '../packages/lib/src/nico/loader';
 import {RelatedVideoList} from './VideoList';
 import {TagListView} from './TagListView';
 import {BaseViewComponent} from '../packages/zenza/src/parts/BaseViewComponent';
@@ -67,6 +68,10 @@ class VideoInfoPanel extends Emitter {
     this._uaaView = new UaaView(
       {parentNode: this._uaaContainer});
 
+    this._commonsTreeContainer = view.querySelector('.commonsTreeContainer');
+    this._commonsTreeView = new CommonsTreeView(
+      {parentNode: this._commonsTreeContainer});
+
     view.addEventListener('mousemove', e => e.stopPropagation());
     view.addEventListener('command', this._onCommandEvent.bind(this));
     view.addEventListener('click', this._onClick.bind(this));
@@ -126,6 +131,9 @@ class VideoInfoPanel extends Emitter {
 
     this._uaaView.clear();
     this._uaaView.update(videoInfo);
+
+    this._commonsTreeView.clear();
+    this._commonsTreeView.update(videoInfo);
 
     this._relatedInfoMenu.update(videoInfo);
 
@@ -804,7 +812,8 @@ css.addStyle(`
   zenza-video-item,
   zenza-video-series-label,
   zenza-vieo-description,
-  .UaaView {
+  .UaaView,
+  .commonsTreeView {
     content-visibility: auto;
   }
 
@@ -1121,6 +1130,8 @@ VideoInfoPanel.__tpl__ = (`
           </div>
           <div class="zenzaWatchVideoInfoPanelFoot">
             <div class="uaaContainer"></div>
+
+            <div class="commonsTreeContainer"></div>
 
             <div class="videoTagsContainer sideTab"></div>
           </div>
@@ -1981,6 +1992,311 @@ VideoSearchForm.__tpl__ = (`
   `).toString();
 
 
+const COMMONS_TREE_VIDEO_ID = /^(sm|nm|so|ss)\d+$/;
+const COMMONS_TREE_ITEM_LIMIT = 6;
+const COMMONS_TREE_WORKS_URL = 'https://commons.nicovideo.jp/works/';
+
+class CommonsTreeView extends BaseViewComponent {
+  constructor({parentNode}) {
+    super({
+      parentNode,
+      name: 'CommonsTreeView',
+      template: CommonsTreeView.__tpl__,
+      shadow: CommonsTreeView._shadow_,
+    });
+
+    this._state = {
+      isExist: false
+    };
+  }
+
+  _initDom(...args) {
+    super._initDom(...args);
+    ZenzaWatch.debug.commonsTree = this;
+
+    if (!this._shadow) {
+      return;
+    } // ShadowDOM使えなかったらバイバイ
+    const shadow = this._shadow || this._view;
+    this._elm.details = this._shadow;
+    this._elm.body = shadow.querySelector('.CommonsTreeBody');
+  }
+
+  update(videoInfo) {
+    if (!this._elm.body) {
+      return;
+    }
+    const videoId = videoInfo.videoId;
+    this._props.videoId = videoId;
+    return CommonsTreeLoader.load(videoId)
+      .then(this._onLoad.bind(this, videoId))
+      .catch(this._onFail.bind(this, videoId));
+  }
+
+  clear() {
+    this.setState({isExist: false});
+    if (!this._elm.body) {
+      return;
+    }
+    this._elm.body.textContent = '';
+  }
+
+  _onLoad(videoId, {parents, children}) {
+    if (this._props.videoId !== videoId) {
+      return;
+    }
+    if (parents.total + children.total < 1) {
+      return;
+    }
+
+    const df = document.createDocumentFragment();
+    if (parents.total > 0) {
+      df.append(this._createGroup('親作品', parents));
+    }
+    if (children.total > 0) {
+      df.append(this._createGroup('子作品', children));
+    }
+
+    const treeLink = document.createElement('a');
+    treeLink.className = 'CommonsTreeFooter';
+    treeLink.href = `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(videoId)}`;
+    treeLink.target = '_blank';
+    treeLink.rel = 'noopener';
+    treeLink.textContent = 'コンテンツツリーを開く';
+    df.append(treeLink);
+
+    this._elm.body.textContent = '';
+    this._elm.body.append(df);
+    this._elm.details?.setAttribute('open', 'open');
+
+    this.setState({isExist: true});
+  }
+
+  _createGroup(label, {total, contents}) {
+    const group = document.createElement('div');
+    group.className = 'CommonsTreeGroup';
+
+    const heading = document.createElement('div');
+    heading.className = 'CommonsTreeHeading';
+    heading.textContent = `${label} (${total})`;
+    group.append(heading);
+
+    const list = document.createElement('ul');
+    list.className = 'CommonsTreeList';
+    contents.slice(0, COMMONS_TREE_ITEM_LIMIT).forEach(item => {
+      list.append(this._createItem(item));
+    });
+    group.append(list);
+
+    if (total > COMMONS_TREE_ITEM_LIMIT) {
+      const more = document.createElement('a');
+      more.className = 'CommonsTreeMore';
+      more.href = `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(this._props.videoId)}`;
+      more.target = '_blank';
+      more.rel = 'noopener';
+      more.textContent = 'もっと見る';
+      group.append(more);
+    }
+
+    return group;
+  }
+
+  _createItem(item) {
+    const li = document.createElement('li');
+    li.className = 'CommonsTreeItem';
+
+    const contentId = item.globalId ?? '';
+    // 動画だけZenzaWatchで開ける。それ以外はそれぞれのページを別タブで開く
+    const isVideo = item.contentKind === 'video' && COMMONS_TREE_VIDEO_ID.test(contentId);
+
+    const link = document.createElement('a');
+    link.className = 'CommonsTreeLink';
+    link.href = isVideo ?
+      `https://www.nicovideo.jp/watch/${encodeURIComponent(contentId)}` :
+      (item.watchURL ?? item.treeURL ?? `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(contentId)}`);
+    link.title = item.title ?? '';
+    if (isVideo) {
+      link.classList.add('command');
+      link.dataset.command = 'open';
+      link.dataset.param = contentId;
+    } else {
+      link.target = '_blank';
+      link.rel = 'noopener';
+    }
+
+    const thumbnailUrl = this._normalizeUrl(item.thumbnailURL);
+    if (thumbnailUrl) {
+      const img = document.createElement('img');
+      img.className = 'CommonsTreeThumbnail';
+      img.loading = 'lazy';
+      img.alt = '';
+      img.src = thumbnailUrl;
+      link.append(img);
+    }
+
+    const title = document.createElement('span');
+    title.className = 'CommonsTreeTitle';
+    title.textContent = item.title ?? contentId;
+    link.append(title);
+
+    li.append(link);
+    return li;
+  }
+
+  _normalizeUrl(url) {
+    if (!url) {
+      return null;
+    }
+    // 古い作品はhttpのサムネイルURLを持っている
+    return url.replace(/^http:\/\//, 'https://');
+  }
+
+  _onFail(videoId) {
+    if (this._props.videoId !== videoId) {
+      return;
+    }
+    this.setState({isExist: false});
+  }
+
+  _onCommand(command, param) {
+    switch (command) {
+      case 'open':
+        if (COMMONS_TREE_VIDEO_ID.test(param)) {
+          super._onCommand('openNow', param);
+        }
+        break;
+      default:
+        super._onCommand(command, param);
+    }
+  }
+}
+
+CommonsTreeView._shadow_ = (`
+    <style>
+      .CommonsTreeDetails,
+      .CommonsTreeDetails * {
+        box-sizing: border-box;
+      }
+
+      .CommonsTreeDetails {
+        opacity: 0;
+        pointer-events: none;
+        max-height: 0;
+        margin: 0 8px 0;
+        color: #ccc;
+        overflow: hidden;
+        text-align: left;
+        word-break: break-all;
+      }
+        .CommonsTreeDetails.is-Exist {
+          display: block;
+          pointer-events: auto;
+          max-height: 800px;
+          padding: 4px;
+          opacity: 1;
+          transition: opacity 0.4s linear 0.4s, max-height 1s ease-in, margin 0.4s ease-in;
+        }
+        .CommonsTreeDetails.is-Exist[open] {
+          border: 1px solid #666;
+          border-radius: 4px;
+          overflow: auto;
+        }
+
+      .CommonsTreeDetails .commonsTreeSummary {
+        height: 32px;
+        margin: 4px 4px 8px;
+        color: inherit;
+        outline: none;
+        border: 1px solid #ccc;
+        letter-spacing: 2px;
+        line-height: 32px;
+        font-size: 16px;
+        text-align: center;
+        cursor: pointer;
+        border-radius: 8px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeBody {
+        margin: auto;
+      }
+
+      .CommonsTreeDetails .CommonsTreeGroup + .CommonsTreeGroup {
+        margin-top: 8px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeHeading {
+        color: #999;
+        font-size: 12px;
+        margin: 2px 2px 4px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeList {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .CommonsTreeDetails .CommonsTreeItem {
+        margin: 0 0 2px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeLink {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 2px;
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        border-radius: 2px;
+      }
+        .CommonsTreeDetails .CommonsTreeLink:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+        .CommonsTreeDetails .CommonsTreeLink:hover .CommonsTreeTitle {
+          text-decoration: underline;
+        }
+
+      .CommonsTreeDetails .CommonsTreeThumbnail {
+        flex: 0 0 auto;
+        width: 64px;
+        height: 36px;
+        object-fit: cover;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 2px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeTitle {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        line-height: 16px;
+      }
+
+      .CommonsTreeDetails .CommonsTreeMore,
+      .CommonsTreeDetails .CommonsTreeFooter {
+        display: inline-block;
+        margin: 4px 2px 0;
+        color: #ff9;
+        font-size: 12px;
+        text-decoration: none;
+      }
+        .CommonsTreeDetails .CommonsTreeMore:hover,
+        .CommonsTreeDetails .CommonsTreeFooter:hover {
+          text-decoration: underline;
+        }
+    </style>
+    <details class="root CommonsTreeDetails">
+      <summary class="commonsTreeSummary clickable">コンテンツツリー</summary>
+      <div class="CommonsTreeBody"></div>
+    </details>
+  `).trim();
+
+CommonsTreeView.__tpl__ = ('<div class="commonsTreeView"></div>').trim();
+
+
 // typoじゃなくてブロック回避のため名前を変えてる
 class UaaView extends BaseViewComponent {
   constructor({parentNode}) {
@@ -2735,6 +3051,7 @@ export {
   VideoInfoPanel,
   VideoHeaderPanel,
   VideoSearchForm,
+  CommonsTreeView,
   UaaView,
   RelatedInfoMenu,
   VideoMetaInfo
