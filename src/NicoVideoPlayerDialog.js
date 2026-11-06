@@ -1465,8 +1465,8 @@ class NicoVideoPlayerDialog extends Emitter {
         return this._onMylistAdd(param.mylistId, param.mylistName);
       case 'mylistRemove':
         return this._onMylistRemove(param.mylistId, param.mylistName);
-      case 'mylistWindow':
-        util.openMylistWindow(this._videoInfo.watchId);
+      case 'openMylistPage':
+        util.openMylistPage();
         break;
       case 'seek':
       case 'seekTo':
@@ -2858,7 +2858,7 @@ class VideoHoverMenu {
     switch (command) {
       case 'deflistAdd':
         if (e.shiftKey) {
-          command = 'mylistWindow';
+          command = 'openMylistPage';
         } else {
           command = e.which > 1 ? 'deflistRemove' : 'deflistAdd';
         }
@@ -2909,11 +2909,6 @@ class VideoHoverMenu {
       case 'mylistOpen':
       case 'close':
         this._hideMenu();
-        break;
-      case 'mylistMenu':
-        if (e.shiftKey) {
-          util.dispatchCommand(target, 'mylistWindow');
-        }
         break;
       case 'nop':
         break;

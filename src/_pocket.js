@@ -3657,12 +3657,6 @@ const emitter = util.emitter;
               }
               return {status: 'default', result};
             });
-          case 'mylist-window':
-            window.open(
-             protocol + '//www.nicovideo.jp/mylist_add/video/' + param,
-             'nicomylistadd',
-             'width=500, height=400, menubar=no, scrollbars=no');
-            break;
           case 'twitter-hash-open':
             window.open('https://twitter.com/hashtag/' + param + '?src=hash');
             break;

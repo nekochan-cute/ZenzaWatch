@@ -101,11 +101,9 @@ const nicoUtil = {
       return 'ja-JP';
     }
   },
-  openMylistWindow: watchId => {
-    window.open(
-      `//www.nicovideo.jp/mylist_add/video/${watchId}`,
-      'nicomylistadd',
-      'width=500, height=400, menubar=no, scrollbars=no');
+  // マイリストへの追加画面(mylist_add)は廃止されたので、マイリスト一覧ページを開く
+  openMylistPage: () => {
+    window.open('https://www.nicovideo.jp/my/mylist', '_blank', 'noopener');
   },
   openTweetWindow: ({watchId, duration, isChannel, title, videoId}) => {
     const nicomsUrl = `https://nico.ms/${watchId}`;
