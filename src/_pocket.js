@@ -1294,10 +1294,6 @@ AntiPrototypeJs().then(() => {
             transform: scale(1.0);
           }
 
-          .mylist-comment-link {
-            cursor: pointer;
-          }
-
           .setting-panel {
             opacity: 0;
             position: absolute;
@@ -1508,8 +1504,7 @@ AntiPrototypeJs().then(() => {
               <span class="counter">
                 <span class="view-counter">再生: <slot name="view-counter"/></span>
                 <span class="comment-counter">コメント: <slot name="comment-counter"/></span>
-                <span class="mylist-counter command2" data-command="mylist-comment-open">マイリスト:
-                  <span class="mylist-comment-link command" data-command="mylist-comment-open">&#x274F;</span>
+                <span class="mylist-counter">マイリスト:
                   <slot name="mylist-counter"/>
                 </span>
               </span>
@@ -2985,9 +2980,6 @@ const emitter = util.emitter;
               target: elm
             }, this);
             break;
-          case 'mylist-comment-open':
-            this.emit('command', command, this._videoInfo.watchId);
-            break;
           case 'close':
             this.hide();
             break;
@@ -3561,9 +3553,6 @@ const emitter = util.emitter;
             break;
           case 'open-mylist-open':
             window.open(protocol + '//www.nicovideo.jp/openlist/' + param);
-            break;
-          case 'mylist-comment-open':
-            window.open(protocol + '//www.nicovideo.jp/mylistcomment/video/' + param);
             break;
            case 'zenza-open-now':
             if (window.ZenzaWatch.config &&
