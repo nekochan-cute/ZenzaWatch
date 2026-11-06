@@ -1412,8 +1412,13 @@ VideoPlayer.__css__ = `
       height: 100%;
       z-index: 5;
     }
+    /* video 要素に transform のトランジションを常時指定すると
+       合成を前提とした扱いになり、ハードウェアオーバーレイに昇格できなくなる
+       (RTX VSR などが効かなくなる)。反転の切り替え中だけ有効にする */
     .zenzaWatchVideoElement {
       display: block;
+    }
+    .is-flipAnimating .zenzaWatchVideoElement {
       transition: transform 0.4s ease;
     }
 

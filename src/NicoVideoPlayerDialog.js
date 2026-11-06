@@ -340,10 +340,10 @@ class NicoVideoPlayerDialogView extends Emitter {
         this.toggleSettingPanel();
         break;
       case 'toggle-flipH':
-        this.toggleClass('is-flipH');
+        this._toggleFlip('is-flipH');
         break;
       case 'toggle-flipV':
-        this.toggleClass('is-flipV');
+        this._toggleFlip('is-flipV');
         break;
       default:
         this.emit('command', command, param);
@@ -678,6 +678,17 @@ class NicoVideoPlayerDialogView extends Emitter {
   toggleClass(name, v) {
     this.classList.toggle(name, v);
   }
+  _toggleFlip(className) {
+    // 反転アニメーションの間だけトランジションを有効にする。
+    // 常時 video 要素に transform のトランジションがあると合成が前提になり、
+    // ハードウェアオーバーレイに昇格できなくなる (RTX VSR などが効かなくなる)
+    this.addClass('is-flipAnimating');
+    this.toggleClass(className);
+    clearTimeout(this._flipAnimatingTimer);
+    this._flipAnimatingTimer = setTimeout(() => {
+      this.removeClass('is-flipAnimating');
+    }, 500);
+  }
   hasClass(name) {
     return this.classList.contains(name);
   }
@@ -731,6 +742,14 @@ util.addStyle(`
     right:  0 !important;
     border: 0 !important;
     z-index: 100 !important;
+  }
+  /* video の親にはペイント隔離や合成のヒントを置かない。
+     video がハードウェアオーバーレイに昇格できなくなる (RTX VSR などが効かなくなる) */
+  .videoPlayer {
+    contain: layout style size;
+  }
+  .commentLayerFrame,
+  .resizeObserver {
     contain: layout style size paint;
     will-change: transform,opacity;
   }
@@ -1035,6 +1054,9 @@ NicoVideoPlayerDialogView.__css__ = `
     display: none;
   }
 
+  /* ここから video までの間 (この要素や祖先) に
+     filter / opacity < 1 / transform / mix-blend-mode / will-change を足すと
+     video がハードウェアオーバーレイに昇格できなくなる (RTX VSR などが効かなくなる) */
   .zenzaPlayerContainer .videoPlayer {
     position: absolute;
     top: 0;
@@ -1046,7 +1068,6 @@ NicoVideoPlayerDialogView.__css__ = `
     border: 0;
     z-index: 100;
     background: #000;
-    will-change: transform, opacity;
     user-select: none;
   }
 
