@@ -930,7 +930,20 @@ AntiPrototypeJs().then(() => {
           debounceTimeout();
           let res;
           for (let i = 0; i < 3; i++) {
-            res = await fetch(request, params).catch(e => ({e}));
+            // gate は AbortSignal も Request も受け取れないので素のオプションで投げる
+            res = await (isExternalSite() ?
+              gateFetch(url, {
+                method: params.method,
+                credentials: params.credentials,
+                cache: params.cache,
+                _format: 'arraybuffer'
+              }).then(({buffer, init}) => ({
+                ok: !!init.ok,
+                status: init.status,
+                url: init.url || url,
+                arrayBuffer: async () => buffer
+              })) :
+              fetch(request, params)).catch(e => ({e}));
             if (res.ok && res.status !== 206) {
               break;
             }
@@ -971,9 +984,12 @@ AntiPrototypeJs().then(() => {
         // hls.config.fLoader にはクラスのインスタンスではなく定義を渡す
         // loaderはexportされていないため、Hls.DefaultConfig.loader経由で継承する
         // @see https://github.com/video-dev/hls.js/blob/master/docs/API.md#loader
+        // 外部サイトではフラグメントも gate 経由でしか取れないので土台を差し替える
+        const BaseLoader = isExternalSite() ?
+          createGateLoader(Hls) : Hls.DefaultConfig.loader;
         let lastFragLoadingTime = 0;
         let BLOCK_INTERVAL = 3000;
-        class FragmentLoader extends Hls.DefaultConfig.loader {
+        class FragmentLoader extends BaseLoader {
 
 
           constructor(config) {
