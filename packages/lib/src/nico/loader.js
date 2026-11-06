@@ -5,7 +5,6 @@ import {CacheStorage} from '../infra/CacheStorage';
 import {NicoRssLoader} from './NicoRssLoader';
 import {MatrixRankingLoader} from './MatrixRankingLoader';
 import {UaaLoader} from './UaaLoader';
-import {IchibaLoader} from './IchibaLoader';
 import {CommonsTreeLoader} from './CommonsTreeLoader';
 import {CrossDomainGate} from '../infra/CrossDomainGate';
 import {RecommendAPILoader} from './RecommendAPILoader';
@@ -25,7 +24,6 @@ import {NicoVideoApi} from './NicoVideoApi';
 //@require MylistApiLoader
 //@require NicoRssLoader
 //@require MatrixRankingLoader
-//@require IchibaLoader
 //@require CommonsTreeLoader
 //@require UaaLoader
 //@require RecommendAPILoader
@@ -43,7 +41,6 @@ export {
   MylistApiLoader,
   CacheStorage,
   CrossDomainGate,
-  IchibaLoader,
   UaaLoader,
   PlaybackPosition,
   NicoVideoApi,

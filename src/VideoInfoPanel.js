@@ -1,7 +1,6 @@
 import {ZenzaWatch, global} from './ZenzaWatchIndex';
 import {CONSTANT} from './constant';
 import {Config} from './Config';
-import {IchibaLoader} from '../packages/lib/src/nico/loader';
 import {UaaLoader} from '../packages/lib/src/nico/loader';
 import {RelatedVideoList} from './VideoList';
 import {TagListView} from './TagListView';
@@ -68,10 +67,6 @@ class VideoInfoPanel extends Emitter {
     this._uaaView = new UaaView(
       {parentNode: this._uaaContainer});
 
-    this._ichibaContainer = view.querySelector('.ichibaContainer');
-    this._ichibaItemView = new IchibaItemView(
-      {parentNode: this._ichibaContainer});
-
     view.addEventListener('mousemove', e => e.stopPropagation());
     view.addEventListener('command', this._onCommandEvent.bind(this));
     view.addEventListener('click', this._onClick.bind(this));
@@ -128,9 +123,6 @@ class VideoInfoPanel extends Emitter {
     classList.toggle('is-community', this._videoInfo.isCommunityVideo);
     classList.toggle('is-mymemory', this._videoInfo.isMymemory);
     classList.add(videoInfo.isChannel ? 'channelVideo' : 'userVideo');
-
-    this._ichibaItemView.clear();
-    this._ichibaItemView.videoId = videoInfo.videoId;
 
     this._uaaView.clear();
     this._uaaView.update(videoInfo);
@@ -812,8 +804,7 @@ css.addStyle(`
   zenza-video-item,
   zenza-video-series-label,
   zenza-vieo-description,
-  .UaaView,
-  .ZenzaIchibaItemView {
+  .UaaView {
     content-visibility: auto;
   }
 
@@ -1053,10 +1044,6 @@ css.addStyle(`
         z-index: 20000;
       }
 
-      .zenzaScreenMode_normal .ZenzaIchibaItemView {
-        margin: 8px 8px 96px;
-      }
-
       .zenzaScreenMode_normal .zenzaWatchVideoInfoPanel .videoOwnerInfoContainer {
         display: table;
       }
@@ -1078,10 +1065,6 @@ css.addStyle(`
         width: 100%;
         height: ${CONSTANT.BOTTOM_PANEL_HEIGHT}px;
         z-index: 20000;
-      }
-
-      .zenzaScreenMode_big .ZenzaIchibaItemView {
-        margin: 8px 8px 96px;
       }
 
       .zenzaScreenMode_big .zenzaWatchVideoInfoPanel .videoOwnerInfoContainer {
@@ -1138,8 +1121,6 @@ VideoInfoPanel.__tpl__ = (`
           </div>
           <div class="zenzaWatchVideoInfoPanelFoot">
             <div class="uaaContainer"></div>
-
-            <div class="ichibaContainer"></div>
 
             <div class="videoTagsContainer sideTab"></div>
           </div>
@@ -2000,242 +1981,6 @@ VideoSearchForm.__tpl__ = (`
   `).toString();
 
 
-class IchibaItemView extends BaseViewComponent {
-  constructor({parentNode}) {
-    super({
-      parentNode,
-      name: 'IchibaItemView',
-      template: IchibaItemView.__tpl__,
-      css: IchibaItemView.__css__,
-    });
-
-    ZenzaWatch.debug.ichiba = this;
-  }
-
-  _initDom(...args) {
-    super._initDom(...args);
-
-    this._listContainer =
-      this._view.querySelector('.ichibaItemListContainer .ichibaItemListInner');
-    this._listContainerDetails =
-      this._view.querySelector('.ichibaItemListContainer .ichibaItemListDetails');
-  }
-
-  _onCommand(command, param) {
-    switch (command) {
-      case 'load':
-        this.load(this._videoId);
-        break;
-      default:
-        super._onCommand(command, param);
-    }
-  }
-
-  load(videoId) {
-    if (this._isLoading) {
-      return;
-    }
-    videoId = videoId || this._videoId;
-    this._isLoading = true;
-    this.addClass('is-loading');
-    return IchibaLoader.load(videoId)
-      .then(this._onIchibaLoad.bind(this))
-      .catch(this._onIchibaLoadFail.bind(this));
-  }
-
-  clear() {
-    this.removeClass('is-loading is-success is-fail is-empty');
-    this._listContainer.textContent = '';
-  }
-
-  _onIchibaLoad(data) {
-    this.removeClass('is-loading');
-    const div = document.createElement('div');
-    div.innerHTML = data.main;
-
-    Array.from(div.querySelectorAll('[id]')).forEach(elm => {
-      elm.classList.add(`ichiba-${elm.id}`);
-      elm.removeAttribute('id');
-    });
-    Array.from(div.querySelectorAll('[style]'))
-      .forEach(elm => elm.removeAttribute('style'));
-
-    const items = div.querySelectorAll('.ichiba_mainitem');
-
-    if (!items || items.length < 1) {
-      this.addClass('is-empty');
-      this._listContainer.innerHTML = '<h2>貼られている商品はありません</h2>';
-    } else {
-      this._listContainer.innerHTML = div.innerHTML;
-    }
-    this.addClass('is-success');
-
-    this._listContainerDetails.setAttribute('open', 'open');
-
-    this._isLoading = false;
-  }
-
-  _onIchibaLoadFail() {
-    this.removeClass('is-loading');
-    this.addClass('is-fail');
-    this._isLoading = false;
-  }
-
-  get videoId() {
-    return this._videoId;
-  }
-
-  set videoId(v) {
-    this._videoId = v;
-  }
-}
-
-
-IchibaItemView.__tpl__ = (`
-    <div class="ZenzaIchibaItemView">
-      <div class="loadStart">
-        <div class="loadStartButton command" data-command="load">ニコニコ市場</div>
-      </div>
-      <div class="ichibaLoadingView">
-        <div class="loading-inner">
-          <span class="spinner">&#8987;</span>
-        </div>
-      </div>
-      <div class="ichibaItemListContainer">
-        <details class="ichibaItemListDetails">
-          <summary class="ichibaItemSummary loadStartButton">ニコニコ市場</summary>
-          <div class="ichibaItemListInner"></div>
-        </details>
-      </div>
-    </div>
-    `).trim();
-
-css.addStyle(`
-  .ZenzaIchibaItemView .loadStartButton {
-    color: #000;
-  }
-`, {className: 'screenMode for-popup ichiba', disabled: true});
-
-IchibaItemView.__css__ = (`
-    .ZenzaIchibaItemView {
-      text-align: center;
-      margin: 4px 8px 8px;
-      color: #ccc;
-    }
-
-      .ZenzaIchibaItemView .loadStartButton {
-         font-size: 24px;
-         padding: 8px 8px;
-         margin: 8px;
-         background: inherit;
-         color: inherit;
-         border: 1px solid #ccc;
-         outline: none;
-         line-height: 20px;
-         border-radius: 8px;
-         cursor: pointer;
-         user-select: none;
-      }
-
-      .ZenzaIchibaItemView .loadStartButton:active::after {
-        opacity: 0;
-      }
-
-      .ZenzaIchibaItemView .loadStartButton:active {
-        transform: translate(0, 2px);
-      }
-
-      .ZenzaIchibaItemView .ichibaLoadingView,
-      .ZenzaIchibaItemView .ichibaItemListContainer {
-        display: none;
-      }
-
-    .ZenzaIchibaItemView.is-loading {
-      cursor: wait;
-      user-select: none;
-    }
-      .ZenzaIchibaItemView.is-loading * {
-        pointer-events: none;
-      }
-      .ZenzaIchibaItemView.is-loading .ichibaLoadingView {
-        display: block;
-        font-size: 32px;
-      }
-      .ZenzaIchibaItemView.is-loading .loadStart,
-      .ZenzaIchibaItemView.is-loading .ichibaItemListContainer {
-        display: none;
-      }
-
-    .ZenzaIchibaItemView.is-success {
-      background: none;
-    }
-      .ZenzaIchibaItemView.is-success .ichibaLoadingView,
-      .ZenzaIchibaItemView.is-success .loadStart {
-        display: none;
-      }
-      .ZenzaIchibaItemView.is-success .ichibaItemListContainer {
-        display: block;
-      }
-      .ZenzaIchibaItemView.is-success details[open] {
-        border: 1px solid #666;
-        border-radius: 4px;
-        padding: 0px;
-      }
-
-
-      .ZenzaIchibaItemView.is-fail .ichibaLoadingView,
-      .ZenzaIchibaItemView.is-fail .loadStartButton {
-        display: none;
-      }
-      .ZenzaIchibaItemView.is-fail .ichibaItemListContainer {
-        display: block;
-      }
-
-
-    .ZenzaIchibaItemView .ichibaItemListContainer {
-      text-align: center;
-    }
-      .ZenzaIchibaItemView .ichibaItemListContainer .ichiba-ichiba_mainpiaitem,
-      .ZenzaIchibaItemView .ichibaItemListContainer .ichiba_mainitem {
-        display: inline-table;
-        width: 220px;
-        margin: 8px;
-        padding: 8px;
-        word-break: break-all;
-        text-shadow: 1px 1px 0 #000;
-        background: #666;
-        border-radius: 4px;
-      }
-      .ZenzaIchibaItemView .price,
-      .ZenzaIchibaItemView .buy,
-      .ZenzaIchibaItemView .click {
-        font-weight: bold;
-      }
-
-
-    .ZenzaIchibaItemView a {
-      display: inline-block;
-      font-weight: bold;
-      text-decoration: none;
-      color: #ff9;
-      padding: 2px;
-    }
-    .ZenzaIchibaItemView a:visited {
-      color: #ffd;
-    }
-
-
-    .ZenzaIchibaItemView .rowJustify,
-    .ZenzaIchibaItemView .noItem,
-    .ichiba-ichibaMainLogo,
-    .ichiba-ichibaMainHeader,
-    .ichiba-ichibaMainFooter {
-      display: none;
-    }
-
-    `).trim();
-
-
 // typoじゃなくてブロック回避のため名前を変えてる
 class UaaView extends BaseViewComponent {
   constructor({parentNode}) {
@@ -2990,7 +2735,6 @@ export {
   VideoInfoPanel,
   VideoHeaderPanel,
   VideoSearchForm,
-  IchibaItemView,
   UaaView,
   RelatedInfoMenu,
   VideoMetaInfo

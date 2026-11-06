@@ -54,7 +54,6 @@ const VideoInfoLoader = (function () {
         commons: {
           hasContentTree,
         },
-        // ichiba,
       },
       genre: {
         key: genreKey,

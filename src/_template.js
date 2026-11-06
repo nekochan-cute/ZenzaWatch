@@ -44,7 +44,7 @@ import {util} from './util';
 import {components} from '../packages/components/src/index';
 import {State} from './State';
 import {VideoInfoLoader} from '../packages/lib/src/nico/loader';
-import {ThumbInfoLoader, PlaylistApiLoader, MylistApiLoader, CacheStorage, CrossDomainGate, IchibaLoader, UaaLoader, PlaybackPosition, NicoVideoApi, RecommendAPILoader, NVWatchCaller, CommonsTreeLoader, NicoRssLoader, MatrixRankingLoader} from '../packages/lib/src/nico/loader';
+import {ThumbInfoLoader, PlaylistApiLoader, MylistApiLoader, CacheStorage, CrossDomainGate, UaaLoader, PlaybackPosition, NicoVideoApi, RecommendAPILoader, NVWatchCaller, CommonsTreeLoader, NicoRssLoader, MatrixRankingLoader} from '../packages/lib/src/nico/loader';
 import {VideoInfoModel} from './VideoInfo';
 import {VideoSearch, NicoSearchApiV2Loader} from '../packages/lib/src/nico/VideoSearch';
 import {TagEditApi} from '../packages/lib/src/nico/TagEditApi';
@@ -232,7 +232,6 @@ Object.assign(ZenzaWatch.api, {
   PlaylistApiLoader,
   MylistApiLoader,
   CacheStorage,
-  IchibaLoader,
   UaaLoader,
   PlaybackPosition,
   NicoVideoApi,
