@@ -1972,10 +1972,6 @@ Object.assign(util, textUtil);
             util.emitter.emit('hideHover');
           });
 
-          Zenza.emitter.on('csrfToken', (token) => {
-            util.emitter.emit('csrfToken', token);
-          });
-
           let popup = document.getElementById('mylistPocket-popup');
           let defaultContainer = document.getElementById('mylistPocketDomContainer');
           defaultContainer.classList.add('zen-family');
@@ -2233,62 +2229,6 @@ Object.assign(util, textUtil);
     })();
 
 //@require CrossDomainGate
-
-    const CsrfTokenLoader = (() => {
-      const cacheStorage = new CacheStorage(
-        location.host === 'www.nicovideo.jp' ? localStorage : sessionStorage);
-      const TIMEOUT = 10 * 1000;
-      const CACHE_EXPIRE_TIME = 60 * 30 * 1000;
-
-      class CsrfTokenLoader {
-        static load() {
-          return new Promise((resolve, reject) => {
-            const cache = cacheStorage.getItem('csrfToken');
-            if (cacheStorage.getItem('csrfToken')) {
-              return resolve(cache);
-            }
-
-            let timeoutTimer = window.setTimeout(() => {
-              reject('timeout');
-            }, TIMEOUT);
-
-            return CsrfTokenLoader._getToken().then((token) => {
-              window.clearTimeout(timeoutTimer);
-              CsrfTokenLoader.saveToCache(token);
-              resolve(token);
-            });
-          });
-        }
-
-        static saveToCache(token) {
-          cacheStorage.setItem('csrfToken', token, CACHE_EXPIRE_TIME);
-        }
-
-        static _getToken() {
-          const url = 'https://www.nicovideo.jp/mylist_add/video/sm9';
-          const tokenReg = /NicoAPI\.token *= *["']([a-z0-9-]+)["'];/;
-          let m;
-          return fetch(url, { credentials: 'include', _format: 'text'})
-            .then(res => res.text())
-            .then(result => {
-            if ((m = tokenReg.exec(result))) {
-              const token = m[1];
-              return Promise.resolve(token);
-            } else {
-              return Promise.reject('token parse error');
-            }
-          });
-        }
-      }
-
-      util.emitter.on('csrfToken', (token) => {
-        CsrfTokenLoader.saveToCache(token);
-      });
-
-      return CsrfTokenLoader;
-    })();
-
-    MylistPocket.debug.CsrfTokenLoader = CsrfTokenLoader;
 
     const ThumbInfoLoader = (() => {
       const BASE_URL = 'https://ext.nicovideo.jp/';
@@ -3421,62 +3361,21 @@ const emitter = util.emitter;
       });
     };
 
-    const deflistAdd = (watchId) => {
-      const enableAutoComment = config.props.mylist.enableAutoComment;
+    const deflistAdd = async (watchId) => {
+      const description = await buildMylistDescription(watchId);
       if (location.host === 'www.nicovideo.jp') {
-        return (() => {
-          if (!enableAutoComment) { return Promise.resolve({}); }
-          return ThumbInfoLoader.load(watchId);
-        })().then((info) => {
-          const originalVideoId = info.originalVideoId ?
-            `元動画: ${info.originalVideoId}` : '';
-          const description = enableAutoComment ?
-            `投稿者: ${info.owner.name} ${info.owner.linkId} ${originalVideoId}` : '';
-          return MylistApiLoader.addDeflistItem(watchId, description)
-        });
+        return MylistApiLoader.addDeflistItem(watchId, description);
       }
-
-      let zenza;
-      let token;
-      return ZenzaDetector.detect().then((z) => {
-        zenza = z;
-      }).then(() => {
-        return CsrfTokenLoader.load().then((t) => {
-          token = t;
-        }, () => { return Promise.resolve(); });
-      }).then(() => {
-        if (!enableAutoComment) { return {}; }
-        return ThumbInfoLoader.load(watchId);
-      }).then((info) => {
-        if (!enableAutoComment) {
-          return zenza.external.deflistAdd({watchId, token});
-        }
-
-        const originalVideoId = info.originalVideoId ?
-          `元動画: ${info.originalVideoId}` : '';
-        const description = enableAutoComment ?
-          `投稿者: ${info.owner.name} ${info.owner.linkId} ${originalVideoId}` : '';
-        return zenza.external.deflistAdd({watchId, description, token});
-      });
+      const zenza = await ZenzaDetector.detect();
+      return zenza.external.deflistAdd({watchId, description});
     };
 
-    const deflistRemove = (watchId) => {
+    const deflistRemove = async (watchId) => {
       if (location.host === 'www.nicovideo.jp') {
         return MylistApiLoader.removeDeflistItem(watchId);
       }
-
-      let zenza;
-      let token;
-      return ZenzaDetector.detect().then((z) => {
-        zenza = z;
-      }).then(() => {
-        return CsrfTokenLoader.load().then((t) => {
-          token = t;
-        }, () => { return Promise.resolve(); });
-      }).then(() => {
-        return zenza.external.deflistRemove({watchId, token});
-      });
-
+      const zenza = await ZenzaDetector.detect();
+      return zenza.external.deflistRemove({watchId});
     };
 
 

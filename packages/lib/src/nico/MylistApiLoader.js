@@ -12,76 +12,15 @@ const MylistApiLoader = (() => {
   // おかげでソート処理が悲しいことに
   //
   const CACHE_EXPIRE_TIME = 5 * 60 * 1000;
-  const TOKEN_EXPIRE_TIME = 59 * 60 * 1000;
   let cacheStorage = null;
-  let token = '';
-
-
-  if (window.ZenzaWatch) {
-    emitter.on('csrfTokenUpdate', t => {
-      token = t;
-      if (cacheStorage) {
-        cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-      }
-    });
-  }
 
   class MylistApiLoader {
     constructor() {
       if (!cacheStorage) {
         cacheStorage = new CacheStorage(sessionStorage);
       }
-      if (!token) {
-        token = cacheStorage.getItem('csrfToken');
-        if (token) {
-          console.log('cached token exists', token);
-        }
-      }
     }
-    setCsrfToken(t) {
-      token = t;
-      if (cacheStorage) {
-        cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-      }else{
-        cacheStorage = new CacheStorage(sessionStorage);
-        cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-      }
-    }
-    
-    // どうにもトークンが取れなくなっていたので、専用の関数作成。
-    // 一応、キャッシュもされている(はず)
-    async _getCsrfToken(){
 
-        if (!cacheStorage) {
-            cacheStorage = new CacheStorage(sessionStorage);
-        }
-        
-        token = cacheStorage.getItem('csrfToken');
-        
-        //キャッシュにあったらそこで返す
-        if (token) {
-            console.log('cached token exists', token);
-        }else{
-        
-            //そもそもemit元からは取れる物がないんだから、
-            //マイリストページからトークン持ってくるしかないでしょ
-            const tokenUrl = 'https://www.nicovideo.jp/my/mylist';
-            const result = await netUtil.fetch( tokenUrl, {
-            cledentials: 'include'
-            }).then(r => r.text()).catch(result => {
-                throw new Error('マイリストトークン取得失敗', {result, status: 'fail'});
-            });
-
-            const dom = new DOMParser().parseFromString(result, 'text/html');
-            const initUserpageDataContena = dom.querySelector('#js-initial-userpage-data');
-            const env = JSON.parse(initUserpageDataContena.getAttribute('data-environment'));
-
-            this.setCsrfToken(env.csrfToken); 
-        }
-
-        return token;
-
-    }
     async _getDeflistItems(frontendId = 6, frontendVersion = 0) {
       const url = 'https://nvapi.nicovideo.jp/v1/users/me/watch-later?sortKey=addedAt&sortOrder=desc';
       const page = new URLSearchParams({ pageSize: 100, page: 1 });

@@ -2,7 +2,6 @@ import {netUtil} from '../infra/netUtil';
 import {textUtil} from '../text/textUtil';
 import {nicoUtil} from '../nico/nicoUtil';
 import {Emitter} from '../Emitter';
-import {CacheStorage} from '../infra/CacheStorage';
 import {TagEditApi} from './TagEditApi';
 
 const Config = {
@@ -14,8 +13,6 @@ const debug = {};
 
 //===BEGIN===
 const VideoInfoLoader = (function () {
-  const cacheStorage = new CacheStorage(sessionStorage);
-
   const parseWatchV3ApiData = (json) => {
     const _data = json?.data?.response;
     if (_data == null) {
@@ -575,8 +572,6 @@ const VideoInfoLoader = (function () {
     const csrfToken = null;
     const watchAuthKey = null;
 
-    cacheStorage.setItem('csrfToken', csrfToken, 30 * 60 * 1000);
-
     const msgInfo = {
       server: _data.comment.server,
       threadId: _data.comment.defaultThread.id,
@@ -673,7 +668,6 @@ const VideoInfoLoader = (function () {
       resumeInfo: _data.resumeInfo,
     };
 
-    emitter.emitAsync('csrfTokenUpdate', csrfToken);
     return result;
   };
 

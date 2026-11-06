@@ -336,21 +336,11 @@ const {initialize} = (() => {
 
     const insertPlaylist = watchId => sendOrExecCommand('playlistInsert', watchId);
 
-    const deflistAdd = ({watchId, description, token}) => {
-      const mylistApiLoader = ZenzaWatch.api.MylistApiLoader;
-      if (token) {
-        mylistApiLoader.setCsrfToken(token);
-      }
-      return mylistApiLoader.addDeflistItem(watchId, description);
-    };
+    const deflistAdd = ({watchId, description}) =>
+      ZenzaWatch.api.MylistApiLoader.addDeflistItem(watchId, description);
 
-    const deflistRemove = ({watchId, token}) => {
-      const mylistApiLoader = ZenzaWatch.api.MylistApiLoader;
-      if (token) {
-        mylistApiLoader.setCsrfToken(token);
-      }
-      return mylistApiLoader.removeDeflistItem(watchId);
-    };
+    const deflistRemove = ({watchId}) =>
+      ZenzaWatch.api.MylistApiLoader.removeDeflistItem(watchId);
 
     const mylistAdd = ({watchId, mylistId, description}) =>
       ZenzaWatch.api.MylistApiLoader.addMylistItem(watchId, mylistId, description);
