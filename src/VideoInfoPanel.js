@@ -2655,6 +2655,7 @@ class RelatedInfoMenu extends BaseViewComponent {
     this._originalLink = shadow.querySelector('.originalLink');
     this._twitterLink = shadow.querySelector('.twitterHashLink');
     this._parentVideoLink = shadow.querySelector('.parentVideoLink');
+    this._baseVideoLink = shadow.querySelector('.baseVideoLink');
   }
 
   _onBodyClick() {
@@ -2670,10 +2671,12 @@ class RelatedInfoMenu extends BaseViewComponent {
 
     this._currentWatchId = videoInfo.watchId;
     this._currentVideoId = videoInfo.videoId;
+    this._baseVideo = videoInfo.baseVideo ?? null;
     this.setState({
       isParentVideoExist: videoInfo.hasParentVideo,
       isCommunity: videoInfo.isCommunityVideo,
-      isMymemory: videoInfo.isMymemory
+      isMymemory: videoInfo.isMymemory,
+      isBaseVideoExist: this._baseVideo != null
     });
 
     const vid = this._currentVideoId;
@@ -2682,6 +2685,8 @@ class RelatedInfoMenu extends BaseViewComponent {
     this._originalLink.setAttribute('href', `//www.nicovideo.jp/watch/${vid}`);
     this._twitterLink.setAttribute('href', `https://twitter.com/hashtag/${vid}`);
     this._parentVideoLink.setAttribute('href', `//commons.nicovideo.jp/works/${vid}`);
+    this._baseVideoLink.setAttribute('href', `//www.nicovideo.jp/watch/${this._baseVideo?.id ?? ''}`);
+    this._baseVideoLink.setAttribute('title', this._baseVideo?.title ?? '');
     this.emit('close');
   }
 
@@ -2711,6 +2716,11 @@ class RelatedInfoMenu extends BaseViewComponent {
         break;
       case 'open-original-video':
         super._onCommand('openNow', this._currentVideoId);
+        break;
+      case 'open-base-video':
+        if (this._baseVideo != null) {
+          super._onCommand('openNow', this._baseVideo.id);
+        }
         break;
       default:
         super._onCommand(command, param);
@@ -2775,13 +2785,15 @@ RelatedInfoMenu._shadow_ = (`
 
 
         .RelatedInfoMenu .originalLinkMenu,
-        .RelatedInfoMenu .parentVideoMenu {
+        .RelatedInfoMenu .parentVideoMenu,
+        .RelatedInfoMenu .baseVideoMenu {
           display: none;
         }
 
         .RelatedInfoMenu.is-Community        .originalLinkMenu,
         .RelatedInfoMenu.is-Mymemory         .originalLinkMenu,
-        .RelatedInfoMenu.is-ParentVideoExist .parentVideoMenu {
+        .RelatedInfoMenu.is-ParentVideoExist .parentVideoMenu,
+        .RelatedInfoMenu.is-BaseVideoExist   .baseVideoMenu {
           display: block;
         }
 
@@ -2852,6 +2864,10 @@ RelatedInfoMenu._shadow_ = (`
           <li class="originalLinkMenu">
             <a class="originalLink command"
               rel="noopener" data-command="open-original-video">元動画を開く</a>
+          </li>
+          <li class="baseVideoMenu">
+            <a class="baseVideoLink command"
+              rel="noopener" data-command="open-base-video">元の動画を開く</a>
           </li>
           <li class="parentVideoMenu">
             <a class="parentVideoLink command"
