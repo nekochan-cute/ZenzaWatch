@@ -2771,7 +2771,7 @@ class VideoHoverMenu {
 
     this._initializeDom();
   }
-  async _initializeDom() {
+  _initializeDom() {
     const container = this._container;
     util.$.html(VideoHoverMenu.__tpl__).appendTo(container);
     this._view = container.querySelector('.hoverMenuContainer');
@@ -2783,7 +2783,18 @@ class VideoHoverMenu {
     $mc.on('mousedown', this._onMouseDown.bind(this));
 
     global.emitter.on('hideHover', this._hideMenu.bind(this));
-    await this._initializeMylistSelectMenu();
+
+    // 新しいサイトのヘッダーはページ読み込み後に描画されるので、読み込み時点のログイン判定は当てにならない。
+    // マイリスト一覧はメニューを初めて開いたときに取得する
+    const mylistMenu = container.querySelector('.mylistAddMenu');
+    const onMylistMenuFocus = () => {
+      if (!util.isLogin()) {
+        return;
+      }
+      mylistMenu.removeEventListener('focusin', onMylistMenuFocus);
+      this._initializeMylistSelectMenu();
+    };
+    mylistMenu.addEventListener('focusin', onMylistMenuFocus);
   }
   async _initializeMylistSelectMenu() {
     if (!util.isLogin()) {
