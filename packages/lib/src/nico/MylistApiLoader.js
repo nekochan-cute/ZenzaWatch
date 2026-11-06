@@ -102,7 +102,7 @@ const MylistApiLoader = (() => {
         } else {
           data.hasInvisibleItems = data.hasInvisibleItems || res.data.watchLater.hasInvisibleItems;
           data.hasNext = res.data.watchLater.hasNext;
-          data.items.concat(res.data.watchLater.items);
+          data.items = data.items.concat(res.data.watchLater.items);
         }
         page.set('page', parseInt(page.get('page')) + 1);
       } while (data && data.hasNext);
@@ -129,7 +129,7 @@ const MylistApiLoader = (() => {
         } else {
           data.hasInvisibleItems = data.hasInvisibleItems || res.data.mylist.hasInvisibleItems;
           data.hasNext = res.data.mylist.hasNext;
-          data.items.concat(res.data.mylist.items);
+          data.items = data.items.concat(res.data.mylist.items);
         }
         page.set('page', parseInt(page.get('page')) + 1);
       } while (data && data.hasNext);
@@ -137,6 +137,7 @@ const MylistApiLoader = (() => {
       return data.items;
     }
     async getMylistList({ frontendId = 6, frontendVersion = 0 } = {}) {
+      // このAPIにはpage/pageSizeが無く、ユーザーのマイリストが全件返る
       const url = 'https://nvapi.nicovideo.jp/v1/users/me/mylists';
       const cacheKey = 'mylistList';
 
