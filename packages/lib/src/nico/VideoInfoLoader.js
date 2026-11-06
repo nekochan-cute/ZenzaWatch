@@ -621,7 +621,7 @@ const VideoInfoLoader = (function () {
         contentType: _data.video.contentType ?? null,
         baseVideo: _data.baseVideo ?? null,
 
-        commons_tree_exists: _data.external?.commons?.hasContentTree ?? true,
+        commons_tree_exists: _data.external?.commons?.hasContentTree ?? false,
 
         // width: _data.video.width, // dmcInfo?.movie.videos[0].metadata.resolution.width
         // height: _data.video.height, // dmcInfo?.movie.videos[0].metadata.resolution.height

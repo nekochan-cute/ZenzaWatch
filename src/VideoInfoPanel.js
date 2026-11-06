@@ -71,6 +71,10 @@ class VideoInfoPanel extends Emitter {
     this._commonsTreeContainer = view.querySelector('.commonsTreeContainer');
     this._commonsTreeView = new CommonsTreeView(
       {parentNode: this._commonsTreeContainer});
+    // watch api からはコンテンツツリーの有無が分からないので、実際に取得できたかで判断する
+    this._commonsTreeView.on('contentTreeExists', hasTree => {
+      this._relatedInfoMenu.setParentVideoExist(hasTree);
+    });
 
     view.addEventListener('mousemove', e => e.stopPropagation());
     view.addEventListener('command', this._onCommandEvent.bind(this));
@@ -2046,6 +2050,7 @@ class CommonsTreeView extends BaseViewComponent {
       return;
     }
     if (parents.total + children.total < 1) {
+      this.emit('contentTreeExists', false);
       return;
     }
 
@@ -2070,6 +2075,7 @@ class CommonsTreeView extends BaseViewComponent {
     this._elm.details?.setAttribute('open', 'open');
 
     this.setState({isExist: true});
+    this.emit('contentTreeExists', true);
   }
 
   _createGroup(label, {total, contents}) {
@@ -2156,6 +2162,7 @@ class CommonsTreeView extends BaseViewComponent {
       return;
     }
     this.setState({isExist: false});
+    this.emit('contentTreeExists', false);
   }
 
   _onCommand(command, param) {
@@ -2717,6 +2724,10 @@ class RelatedInfoMenu extends BaseViewComponent {
     this._twitterLink = shadow.querySelector('.twitterHashLink');
     this._parentVideoLink = shadow.querySelector('.parentVideoLink');
     this._baseVideoLink = shadow.querySelector('.baseVideoLink');
+  }
+
+  setParentVideoExist(isExist) {
+    this.setState({isParentVideoExist: !!isExist});
   }
 
   _onBodyClick() {
