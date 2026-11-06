@@ -359,6 +359,38 @@ class VideoInfoModel extends JSONable {
     return this._videoDetail.v;
   }
 
+  get contentType() {
+    // 昔のキャッシュには contentType が無いので、ss からショート動画だと推測する
+    return this._videoDetail.contentType ?? (this.watchId.startsWith('ss') ? 'short' : 'long');
+  }
+
+  get isShort() {
+    return this.contentType === 'short';
+  }
+
+  /**
+   * ショート動画の元になった動画。無ければ null
+   */
+  get baseVideo() {
+    const baseVideo = this._videoDetail.baseVideo;
+    if (baseVideo?.baseVideoId == null) {
+      return null;
+    }
+    const {baseVideoId, contentType, title, thumbnail} = baseVideo;
+    let thumbnailUrl = null;
+    if (typeof thumbnail === 'string') {
+      thumbnailUrl = thumbnail;
+    } else if (thumbnail) {
+      thumbnailUrl = thumbnail.url ?? thumbnail.normal ?? thumbnail.large ?? null;
+    }
+    return {
+      id: baseVideoId,
+      contentType: contentType ?? 'long',
+      title: title ?? '',
+      thumbnail: thumbnailUrl,
+    };
+  }
+
   get watchUrl() {
     return `https://www.nicovideo.jp/watch/${this.watchId}`;
   }

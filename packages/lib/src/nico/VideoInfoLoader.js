@@ -330,7 +330,7 @@ const VideoInfoLoader = (function () {
         // commentableUserType,
         // billingType,
       },
-      // baseVideo,
+      baseVideo, // ショート動画の元になった動画 (nullable)
       player: {
         // comment,
         initialPlayback, // nullable
@@ -358,7 +358,7 @@ const VideoInfoLoader = (function () {
         // supplements,
         duration,
         id: videoId,
-        // contentType,
+        contentType, // 'long' | 'short'
         permission: {
           isPrivate,
           isDeleted,
@@ -449,6 +449,7 @@ const VideoInfoLoader = (function () {
         description,
         duration,
         id: videoId,
+        contentType,
         permission: {
           isPrivate,
           isDeleted,
@@ -465,6 +466,7 @@ const VideoInfoLoader = (function () {
         title,
         isLiked,
       },
+      baseVideo,
       domandInfo,
       ownerInfo,
       viewerInfo,
@@ -617,6 +619,8 @@ const VideoInfoLoader = (function () {
         thumbnail: _data.video.thumbnail.normal,
         largeThumbnail: _data.video.thumbnail.player,
         length: _data.video.duration,
+        contentType: _data.video.contentType ?? null,
+        baseVideo: _data.baseVideo ?? null,
 
         commons_tree_exists: _data.external?.commons?.hasContentTree ?? true,
 
