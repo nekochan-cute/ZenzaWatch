@@ -1900,10 +1900,11 @@ AntiPrototypeJs().then(() => {
           ' <a href="//com.nicovideo.jp/community/co$2" class="communityLink" rel="noopener" target="_blank">$1co$2</a> ');
         html = html.replace(/(https?:\/\/www\.nicovideo\.jp\/)?(watch|shorts|mylist|series|user)\/(\d+)/g,
           ' <a href="https://www.nicovideo.jp/$2/$3" rel="noopener" class="videoLink target-change">$1$2/$3</a> ');
-        html = html.replace(/(https?:\/\/www\.nicovideo\.jp\/watch\/)?(sm|nm|so|ss)(\d+)/g,
-          ' <a href="https://www.nicovideo.jp/watch/$2$3" rel="noopener" class="videoLink target-change">$1$2$3</a> ');
-        html = html.replace(/(https?:\/\/www\.nicovideo\.jp\/shorts\/)?ss(\d+)/g,
+        // ショート動画は /shorts/ に飛ばす。sm/nm/so より先に処理して二重リンクを防ぐ
+        html = html.replace(/(https?:\/\/www\.nicovideo\.jp\/(?:watch|shorts)\/)?ss(\d+)/g,
           ' <a href="https://www.nicovideo.jp/shorts/ss$2" rel="noopener" class="videoLink target-change">$1ss$2</a> ');
+        html = html.replace(/(https?:\/\/www\.nicovideo\.jp\/watch\/)?(sm|nm|so)(\d+)/g,
+          ' <a href="https://www.nicovideo.jp/watch/$2$3" rel="noopener" class="videoLink target-change">$1$2$3</a> ');
 
         let linkmatch = /<a.*?<\/a>/, n;
         html = html.split('<br />').join(' <br /> ');
