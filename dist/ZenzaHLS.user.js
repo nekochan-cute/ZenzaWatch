@@ -1617,6 +1617,8 @@ const workerUtil = (() => {
                 width: 100%;
                 height: 100%;
               }
+              /* mix-blend-mode を使うと video と同じ合成グループにまとめられ、
+                 ハードウェアオーバーレイへの昇格が妨げられる (RTX VSR などが効かなくなる) */
               .label {
                 position: absolute;
                 z-index: 100;
@@ -1629,7 +1631,7 @@ const workerUtil = (() => {
                 border: 1px solid #888;
                 font-family: 'Arial Black';
                 pointer-events: none;
-                mix-blend-mode: luminosity;
+                text-shadow: 0 0 2px rgba(255, 255, 255, 0.6);
                 transition: 0.2s opacity;
                 opacity: 0.5;
               }

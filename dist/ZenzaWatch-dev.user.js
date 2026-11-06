@@ -2343,6 +2343,9 @@ const nicoUtil = {
 		if (!videoIdReg.test(videoId)) {
 			return null;
 		}
+		if (videoId.startsWith('ss')) {
+			return null;
+		}
 		const fileId = parseInt(videoId.substr(2), 10);
 		const large = nicoUtil.hasLargeThumbnail(videoId) ? '.L' : '';
 		return fileId >= 35374758 ? // このIDから先は新サーバー(おそらく)
@@ -2388,11 +2391,8 @@ isLoginLegacy: () => {
 			return 'ja-JP';
 		}
 	},
-	openMylistWindow: watchId => {
-		window.open(
-			`//www.nicovideo.jp/mylist_add/video/${watchId}`,
-			'nicomylistadd',
-			'width=500, height=400, menubar=no, scrollbars=no');
+	openMylistPage: () => {
+		window.open('https://www.nicovideo.jp/my/mylist', '_blank', 'noopener');
 	},
 	openTweetWindow: ({watchId, duration, isChannel, title, videoId}) => {
 		const nicomsUrl = `https://nico.ms/${watchId}`;
@@ -2628,12 +2628,12 @@ const WatchPageHistory = (() => {
 		originalUrl = window && window.location && window.location.href;
 		originalTitle = window && window.document && window.document.title;
 	};
-	const onVideoInfoLoad = _.debounce(({watchId, title, owner: {name}}) => {
+	const onVideoInfoLoad = _.debounce(({watchId, title, owner: {name}, isShort}) => {
 		if (!watchId || !isOpen) {
 			return;
 		}
 		title = `${title} by ${name} - ${PRODUCT}`;
-		path = `/watch/${watchId}`;
+		path = `/${isShort ? 'shorts' : 'watch'}/${watchId}`;
 		if (location.host === 'www.nicovideo.jp') {
 			return pushHistory(path, title);
 		}
@@ -6268,7 +6268,6 @@ const CacheStorage = (() => {
 	return CacheStorage;
 })();
 const VideoInfoLoader = (function () {
-	const cacheStorage = new CacheStorage(sessionStorage);
 	const parseWatchV3ApiData = (json) => {
 		const _data = json?.data?.response;
 		if (_data == null) {
@@ -6496,6 +6495,7 @@ const VideoInfoLoader = (function () {
 					isEnabled: isPremiumFree,
 				},
 			},
+			baseVideo, // ショート動画の元になった動画 (nullable)
 			player: {
 				initialPlayback, // nullable
 			},
@@ -6516,6 +6516,7 @@ const VideoInfoLoader = (function () {
 				description,
 				duration,
 				id: videoId,
+				contentType, // 'long' | 'short'
 				permission: {
 					isPrivate,
 					isDeleted,
@@ -6596,6 +6597,7 @@ const VideoInfoLoader = (function () {
 				description,
 				duration,
 				id: videoId,
+				contentType,
 				permission: {
 					isPrivate,
 					isDeleted,
@@ -6612,6 +6614,7 @@ const VideoInfoLoader = (function () {
 				title,
 				isLiked,
 			},
+			baseVideo,
 			domandInfo,
 			ownerInfo,
 			viewerInfo,
@@ -6709,7 +6712,6 @@ const VideoInfoLoader = (function () {
 		}
 		const csrfToken = null;
 		const watchAuthKey = null;
-		cacheStorage.setItem('csrfToken', csrfToken, 30 * 60 * 1000);
 		const msgInfo = {
 			server: _data.comment.server,
 			threadId: _data.comment.defaultThread.id,
@@ -6748,7 +6750,9 @@ const VideoInfoLoader = (function () {
 				thumbnail: _data.video.thumbnail.normal,
 				largeThumbnail: _data.video.thumbnail.player,
 				length: _data.video.duration,
-				commons_tree_exists: _data.external?.commons?.hasContentTree ?? true,
+				contentType: _data.video.contentType ?? null,
+				baseVideo: _data.baseVideo ?? null,
+				commons_tree_exists: _data.external?.commons?.hasContentTree ?? false,
 				isMymemory: false,
 				communityId: _data.community?.id ?? null,
 				isLiked: _data.video.isLiked,
@@ -6789,7 +6793,6 @@ const VideoInfoLoader = (function () {
 			linkedChannelVideo: null,
 			resumeInfo: _data.resumeInfo,
 		};
-		emitter.emitAsync('csrfTokenUpdate', csrfToken);
 		return result;
 	};
 	const loadLinkedChannelVideoInfo = (originalData) => {
@@ -7074,58 +7077,12 @@ const PlaylistApiLoader = (() => {
 })();
 const MylistApiLoader = (() => {
 	const CACHE_EXPIRE_TIME = 5 * 60 * 1000;
-	const TOKEN_EXPIRE_TIME = 59 * 60 * 1000;
 	let cacheStorage = null;
-	let token = '';
-	if (window.ZenzaWatch) {
-		emitter.on('csrfTokenUpdate', t => {
-			token = t;
-			if (cacheStorage) {
-				cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-			}
-		});
-	}
 	class MylistApiLoader {
 		constructor() {
 			if (!cacheStorage) {
 				cacheStorage = new CacheStorage(sessionStorage);
 			}
-			if (!token) {
-				token = cacheStorage.getItem('csrfToken');
-				if (token) {
-					console.log('cached token exists', token);
-				}
-			}
-		}
-		setCsrfToken(t) {
-			token = t;
-			if (cacheStorage) {
-				cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-			}else{
-				cacheStorage = new CacheStorage(sessionStorage);
-				cacheStorage.setItem('csrfToken', token, TOKEN_EXPIRE_TIME);
-			}
-		}
-		async _getCsrfToken(){
-				if (!cacheStorage) {
-						cacheStorage = new CacheStorage(sessionStorage);
-				}
-				token = cacheStorage.getItem('csrfToken');
-				if (token) {
-						console.log('cached token exists', token);
-				}else{
-						const tokenUrl = 'https://www.nicovideo.jp/my/mylist';
-						const result = await netUtil.fetch( tokenUrl, {
-						cledentials: 'include'
-						}).then(r => r.text()).catch(result => {
-								throw new Error('マイリストトークン取得失敗', {result, status: 'fail'});
-						});
-						const dom = new DOMParser().parseFromString(result, 'text/html');
-						const initUserpageDataContena = dom.querySelector('#js-initial-userpage-data');
-						const env = JSON.parse(initUserpageDataContena.getAttribute('data-environment'));
-						this.setCsrfToken(env.csrfToken); 
-				}
-				return token;
 		}
 		async _getDeflistItems(frontendId = 6, frontendVersion = 0) {
 			const url = 'https://nvapi.nicovideo.jp/v1/users/me/watch-later?sortKey=addedAt&sortOrder=desc';
@@ -7145,7 +7102,7 @@ const MylistApiLoader = (() => {
 				} else {
 					data.hasInvisibleItems = data.hasInvisibleItems || res.data.watchLater.hasInvisibleItems;
 					data.hasNext = res.data.watchLater.hasNext;
-					data.items.concat(res.data.watchLater.items);
+					data.items = data.items.concat(res.data.watchLater.items);
 				}
 				page.set('page', parseInt(page.get('page')) + 1);
 			} while (data && data.hasNext);
@@ -7169,7 +7126,7 @@ const MylistApiLoader = (() => {
 				} else {
 					data.hasInvisibleItems = data.hasInvisibleItems || res.data.mylist.hasInvisibleItems;
 					data.hasNext = res.data.mylist.hasNext;
-					data.items.concat(res.data.mylist.items);
+					data.items = data.items.concat(res.data.mylist.items);
 				}
 				page.set('page', parseInt(page.get('page')) + 1);
 			} while (data && data.hasNext);
@@ -7427,19 +7384,30 @@ const MatrixRankingLoader = {
 		return JSON.parse(doc.getElementById('MatrixRanking-app').dataset.app);
 	}
 };
-const IchibaLoader = {
-	load: watchId => {
-		const api = 'https://ichiba.nicovideo.jp/embed/zero/show_ichiba';
-		const country = 'ja-jp';
-		const url = `${api}?v=${watchId}&country=${country}&ch=&is_adult=1&rev=20120220`;
-		return netUtil.jsonp(url);
-	}
-};
+const DEFAULT_LIMIT = 15;
 const CommonsTreeLoader = {
-	load: contentId => {
-		const api = 'https://api.commons.nicovideo.jp/works/summary/get';
-		const url = `${api}?id=${contentId}&limit=200`;
-		return netUtil.jsonp(url);
+	load: (videoId, {limit = DEFAULT_LIMIT} = {}) => {
+		const query = new URLSearchParams({
+			_limit: `${limit}`,
+			with_meta: '1',
+			_sort: '-id',
+		});
+		const url = `https://public-api.commons.nicovideo.jp/v1/tree/${encodeURIComponent(videoId)}/relatives?${query.toString()}`;
+		return netUtil.fetch(url, {credentials: 'omit'})
+			.then(res => res.json())
+			.then(json => {
+				const {parents, children} = json?.data ?? {};
+				return {
+					parents: {
+						total: parents?.total ?? 0,
+						contents: parents?.contents ?? [],
+					},
+					children: {
+						total: children?.total ?? 0,
+						contents: children?.contents ?? [],
+					},
+				};
+			});
 	}
 };
 const UaaLoader = {
@@ -8050,8 +8018,33 @@ class VideoInfoModel extends JSONable {
 	get contextWatchId() {
 		return this._videoDetail.v;
 	}
+	get contentType() {
+		return this._videoDetail.contentType ?? (this.watchId.startsWith('ss') ? 'short' : 'long');
+	}
+	get isShort() {
+		return this.contentType === 'short';
+	}
+	get baseVideo() {
+		const baseVideo = this._videoDetail.baseVideo;
+		if (baseVideo?.baseVideoId == null) {
+			return null;
+		}
+		const {baseVideoId, contentType, title, thumbnail} = baseVideo;
+		let thumbnailUrl = null;
+		if (typeof thumbnail === 'string') {
+			thumbnailUrl = thumbnail;
+		} else if (thumbnail) {
+			thumbnailUrl = thumbnail.url ?? thumbnail.normal ?? thumbnail.large ?? null;
+		}
+		return {
+			id: baseVideoId,
+			contentType: contentType ?? 'long',
+			title: title ?? '',
+			thumbnail: thumbnailUrl,
+		};
+	}
 	get watchUrl() {
-		return `https://www.nicovideo.jp/watch/${this.watchId}`;
+		return `https://www.nicovideo.jp/${this.isShort ? 'shorts' : 'watch'}/${this.watchId}`;
 	}
 	get threadId() { // watchIdと同一とは限らない
 		return this._msgInfo.threadId;
@@ -8815,7 +8808,6 @@ Object.assign(ZenzaWatch.api, {
   PlaylistApiLoader,
   MylistApiLoader,
   CacheStorage,
-  IchibaLoader,
   UaaLoader,
   PlaybackPosition,
   NicoVideoApi,
@@ -10917,8 +10909,13 @@ VideoPlayer.__css__ = `
 			height: 100%;
 			z-index: 5;
 		}
+		/* video 要素に transform のトランジションを常時指定すると
+			合成を前提とした扱いになり、ハードウェアオーバーレイに昇格できなくなる
+			(RTX VSR などが効かなくなる)。反転の切り替え中だけ有効にする */
 		.zenzaWatchVideoElement {
 			display: block;
+		}
+		.is-flipAnimating .zenzaWatchVideoElement {
 			transition: transform 0.4s ease;
 		}
 		.is-flipH .zenzaWatchVideoElement {
@@ -24107,10 +24104,10 @@ class NicoVideoPlayerDialogView extends Emitter {
 				this.toggleSettingPanel();
 				break;
 			case 'toggle-flipH':
-				this.toggleClass('is-flipH');
+				this._toggleFlip('is-flipH');
 				break;
 			case 'toggle-flipV':
-				this.toggleClass('is-flipV');
+				this._toggleFlip('is-flipV');
 				break;
 			default:
 				this.emit('command', command, param);
@@ -24435,6 +24432,14 @@ class NicoVideoPlayerDialogView extends Emitter {
 	toggleClass(name, v) {
 		this.classList.toggle(name, v);
 	}
+	_toggleFlip(className) {
+		this.addClass('is-flipAnimating');
+		this.toggleClass(className);
+		clearTimeout(this._flipAnimatingTimer);
+		this._flipAnimatingTimer = setTimeout(() => {
+			this.removeClass('is-flipAnimating');
+		}, 500);
+	}
 	hasClass(name) {
 		return this.classList.contains(name);
 	}
@@ -24485,6 +24490,14 @@ util.addStyle(`
 		right:  0 !important;
 		border: 0 !important;
 		z-index: 100 !important;
+	}
+	/* video の親にはペイント隔離や合成のヒントを置かない。
+		video がハードウェアオーバーレイに昇格できなくなる (RTX VSR などが効かなくなる) */
+	.videoPlayer {
+		contain: layout style size;
+	}
+	.commentLayerFrame,
+	.resizeObserver {
 		contain: layout style size paint;
 		will-change: transform,opacity;
 	}
@@ -24743,6 +24756,9 @@ NicoVideoPlayerDialogView.__css__ = `
 	.zenzaPlayerContainer.is-error .commentLayerFrame {
 		display: none;
 	}
+	/* ここから video までの間 (この要素や祖先) に
+		filter / opacity < 1 / transform / mix-blend-mode / will-change を足すと
+		video がハードウェアオーバーレイに昇格できなくなる (RTX VSR などが効かなくなる) */
 	.zenzaPlayerContainer .videoPlayer {
 		position: absolute;
 		top: 0;
@@ -24754,7 +24770,6 @@ NicoVideoPlayerDialogView.__css__ = `
 		border: 0;
 		z-index: 100;
 		background: #000;
-		will-change: transform, opacity;
 		user-select: none;
 	}
 	.is-mouseMoving .videoPlayer>* {
@@ -25107,8 +25122,8 @@ class NicoVideoPlayerDialog extends Emitter {
 				return this._onMylistAdd(param.mylistId, param.mylistName);
 			case 'mylistRemove':
 				return this._onMylistRemove(param.mylistId, param.mylistName);
-			case 'mylistWindow':
-				util.openMylistWindow(this._videoInfo.watchId);
+			case 'openMylistPage':
+				util.openMylistPage();
 				break;
 			case 'seek':
 			case 'seekTo':
@@ -26314,7 +26329,7 @@ class VideoHoverMenu {
 			_.debounce(() => util.dispatchCommand(this._container, 'close'), 300);
 		this._initializeDom();
 	}
-	async _initializeDom() {
+	_initializeDom() {
 		const container = this._container;
 		util.$.html(VideoHoverMenu.__tpl__).appendTo(container);
 		this._view = container.querySelector('.hoverMenuContainer');
@@ -26324,7 +26339,15 @@ class VideoHoverMenu {
 		$mc.on('click', this._onClick.bind(this));
 		$mc.on('mousedown', this._onMouseDown.bind(this));
 		global.emitter.on('hideHover', this._hideMenu.bind(this));
-		await this._initializeMylistSelectMenu();
+		const mylistMenu = container.querySelector('.mylistAddMenu');
+		const onMylistMenuFocus = () => {
+			if (!util.isLogin()) {
+				return;
+			}
+			mylistMenu.removeEventListener('focusin', onMylistMenuFocus);
+			this._initializeMylistSelectMenu();
+		};
+		mylistMenu.addEventListener('focusin', onMylistMenuFocus);
 	}
 	async _initializeMylistSelectMenu() {
 		if (!util.isLogin()) {
@@ -26393,7 +26416,7 @@ class VideoHoverMenu {
 		switch (command) {
 			case 'deflistAdd':
 				if (e.shiftKey) {
-					command = 'mylistWindow';
+					command = 'openMylistPage';
 				} else {
 					command = e.which > 1 ? 'deflistRemove' : 'deflistAdd';
 				}
@@ -26442,11 +26465,6 @@ class VideoHoverMenu {
 			case 'mylistOpen':
 			case 'close':
 				this._hideMenu();
-				break;
-			case 'mylistMenu':
-				if (e.shiftKey) {
-					util.dispatchCommand(target, 'mylistWindow');
-				}
 				break;
 			case 'nop':
 				break;
@@ -28370,9 +28388,12 @@ class VideoInfoPanel extends Emitter {
 		this._uaaContainer = view.querySelector('.uaaContainer');
 		this._uaaView = new UaaView(
 			{parentNode: this._uaaContainer});
-		this._ichibaContainer = view.querySelector('.ichibaContainer');
-		this._ichibaItemView = new IchibaItemView(
-			{parentNode: this._ichibaContainer});
+		this._commonsTreeContainer = view.querySelector('.commonsTreeContainer');
+		this._commonsTreeView = new CommonsTreeView(
+			{parentNode: this._commonsTreeContainer});
+		this._commonsTreeView.on('contentTreeExists', hasTree => {
+			this._relatedInfoMenu.setParentVideoExist(hasTree);
+		});
 		view.addEventListener('mousemove', e => e.stopPropagation());
 		view.addEventListener('command', this._onCommandEvent.bind(this));
 		view.addEventListener('click', this._onClick.bind(this));
@@ -28423,10 +28444,10 @@ class VideoInfoPanel extends Emitter {
 		classList.toggle('is-community', this._videoInfo.isCommunityVideo);
 		classList.toggle('is-mymemory', this._videoInfo.isMymemory);
 		classList.add(videoInfo.isChannel ? 'channelVideo' : 'userVideo');
-		this._ichibaItemView.clear();
-		this._ichibaItemView.videoId = videoInfo.videoId;
 		this._uaaView.clear();
 		this._uaaView.update(videoInfo);
+		this._commonsTreeView.clear();
+		this._commonsTreeView.update(videoInfo);
 		this._relatedInfoMenu.update(videoInfo);
 	}
 	async _updateVideoDescription(html, series = null) {
@@ -29041,7 +29062,7 @@ css.addStyle(`
 	zenza-video-series-label,
 	zenza-vieo-description,
 	.UaaView,
-	.ZenzaIchibaItemView {
+	.commonsTreeView {
 		content-visibility: auto;
 	}
 	`, {className: 'videoInfoPanel'});
@@ -29260,9 +29281,6 @@ css.addStyle(`
 				height: ${CONSTANT.BOTTOM_PANEL_HEIGHT}px;
 				z-index: 20000;
 			}
-			.zenzaScreenMode_normal .ZenzaIchibaItemView {
-				margin: 8px 8px 96px;
-			}
 			.zenzaScreenMode_normal .zenzaWatchVideoInfoPanel .videoOwnerInfoContainer {
 				display: table;
 			}
@@ -29283,9 +29301,6 @@ css.addStyle(`
 				width: 100%;
 				height: ${CONSTANT.BOTTOM_PANEL_HEIGHT}px;
 				z-index: 20000;
-			}
-			.zenzaScreenMode_big .ZenzaIchibaItemView {
-				margin: 8px 8px 96px;
 			}
 			.zenzaScreenMode_big .zenzaWatchVideoInfoPanel .videoOwnerInfoContainer {
 				display: table;
@@ -29335,7 +29350,7 @@ VideoInfoPanel.__tpl__ = (`
 					</div>
 					<div class="zenzaWatchVideoInfoPanelFoot">
 						<div class="uaaContainer"></div>
-						<div class="ichibaContainer"></div>
+						<div class="commonsTreeContainer"></div>
 						<div class="videoTagsContainer sideTab"></div>
 					</div>
 				</div>
@@ -30080,206 +30095,272 @@ VideoSearchForm.__tpl__ = (`
 			</form>
 		</div>
 	`).toString();
-class IchibaItemView extends BaseViewComponent {
+const COMMONS_TREE_VIDEO_ID = /^(sm|nm|so|ss)\d+$/;
+const COMMONS_TREE_ITEM_LIMIT = 6;
+const COMMONS_TREE_WORKS_URL = 'https://commons.nicovideo.jp/works/';
+class CommonsTreeView extends BaseViewComponent {
 	constructor({parentNode}) {
 		super({
 			parentNode,
-			name: 'IchibaItemView',
-			template: IchibaItemView.__tpl__,
-			css: IchibaItemView.__css__,
+			name: 'CommonsTreeView',
+			template: CommonsTreeView.__tpl__,
+			shadow: CommonsTreeView._shadow_,
 		});
-		ZenzaWatch.debug.ichiba = this;
+		this._state = {
+			isExist: false
+		};
 	}
 	_initDom(...args) {
 		super._initDom(...args);
-		this._listContainer =
-			this._view.querySelector('.ichibaItemListContainer .ichibaItemListInner');
-		this._listContainerDetails =
-			this._view.querySelector('.ichibaItemListContainer .ichibaItemListDetails');
+		ZenzaWatch.debug.commonsTree = this;
+		if (!this._shadow) {
+			return;
+		} // ShadowDOM使えなかったらバイバイ
+		const shadow = this._shadow || this._view;
+		this._elm.details = this._shadow;
+		this._elm.body = shadow.querySelector('.CommonsTreeBody');
+	}
+	update(videoInfo) {
+		if (!this._elm.body) {
+			return;
+		}
+		const videoId = videoInfo.videoId;
+		this._props.videoId = videoId;
+		return CommonsTreeLoader.load(videoId)
+			.then(this._onLoad.bind(this, videoId))
+			.catch(this._onFail.bind(this, videoId));
+	}
+	clear() {
+		this.setState({isExist: false});
+		if (!this._elm.body) {
+			return;
+		}
+		this._elm.body.textContent = '';
+	}
+	_onLoad(videoId, {parents, children}) {
+		if (this._props.videoId !== videoId) {
+			return;
+		}
+		if (parents.total + children.total < 1) {
+			this.emit('contentTreeExists', false);
+			return;
+		}
+		const df = document.createDocumentFragment();
+		if (parents.total > 0) {
+			df.append(this._createGroup('親作品', parents));
+		}
+		if (children.total > 0) {
+			df.append(this._createGroup('子作品', children));
+		}
+		const treeLink = document.createElement('a');
+		treeLink.className = 'CommonsTreeFooter';
+		treeLink.href = `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(videoId)}`;
+		treeLink.target = '_blank';
+		treeLink.rel = 'noopener';
+		treeLink.textContent = 'コンテンツツリーを開く';
+		df.append(treeLink);
+		this._elm.body.textContent = '';
+		this._elm.body.append(df);
+		this._elm.details?.setAttribute('open', 'open');
+		this.setState({isExist: true});
+		this.emit('contentTreeExists', true);
+	}
+	_createGroup(label, {total, contents}) {
+		const group = document.createElement('div');
+		group.className = 'CommonsTreeGroup';
+		const heading = document.createElement('div');
+		heading.className = 'CommonsTreeHeading';
+		heading.textContent = `${label} (${total})`;
+		group.append(heading);
+		const list = document.createElement('ul');
+		list.className = 'CommonsTreeList';
+		contents.slice(0, COMMONS_TREE_ITEM_LIMIT).forEach(item => {
+			list.append(this._createItem(item));
+		});
+		group.append(list);
+		if (total > COMMONS_TREE_ITEM_LIMIT) {
+			const more = document.createElement('a');
+			more.className = 'CommonsTreeMore';
+			more.href = `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(this._props.videoId)}`;
+			more.target = '_blank';
+			more.rel = 'noopener';
+			more.textContent = 'もっと見る';
+			group.append(more);
+		}
+		return group;
+	}
+	_createItem(item) {
+		const li = document.createElement('li');
+		li.className = 'CommonsTreeItem';
+		const contentId = item.globalId ?? '';
+		const isVideo = item.contentKind === 'video' && COMMONS_TREE_VIDEO_ID.test(contentId);
+		const link = document.createElement('a');
+		link.className = 'CommonsTreeLink';
+		link.href = isVideo ?
+			`https://www.nicovideo.jp/watch/${encodeURIComponent(contentId)}` :
+			(item.watchURL ?? item.treeURL ?? `${COMMONS_TREE_WORKS_URL}${encodeURIComponent(contentId)}`);
+		link.title = item.title ?? '';
+		if (isVideo) {
+			link.classList.add('command');
+			link.dataset.command = 'open';
+			link.dataset.param = contentId;
+		} else {
+			link.target = '_blank';
+			link.rel = 'noopener';
+		}
+		const thumbnailUrl = this._normalizeUrl(item.thumbnailURL);
+		if (thumbnailUrl) {
+			const img = document.createElement('img');
+			img.className = 'CommonsTreeThumbnail';
+			img.loading = 'lazy';
+			img.alt = '';
+			img.src = thumbnailUrl;
+			link.append(img);
+		}
+		const title = document.createElement('span');
+		title.className = 'CommonsTreeTitle';
+		title.textContent = item.title ?? contentId;
+		link.append(title);
+		li.append(link);
+		return li;
+	}
+	_normalizeUrl(url) {
+		if (!url) {
+			return null;
+		}
+		return url.replace(/^http:\/\//, 'https://');
+	}
+	_onFail(videoId) {
+		if (this._props.videoId !== videoId) {
+			return;
+		}
+		this.setState({isExist: false});
+		this.emit('contentTreeExists', false);
 	}
 	_onCommand(command, param) {
 		switch (command) {
-			case 'load':
-				this.load(this._videoId);
+			case 'open':
+				if (COMMONS_TREE_VIDEO_ID.test(param)) {
+					super._onCommand('openNow', param);
+				}
 				break;
 			default:
 				super._onCommand(command, param);
 		}
 	}
-	load(videoId) {
-		if (this._isLoading) {
-			return;
-		}
-		videoId = videoId || this._videoId;
-		this._isLoading = true;
-		this.addClass('is-loading');
-		return IchibaLoader.load(videoId)
-			.then(this._onIchibaLoad.bind(this))
-			.catch(this._onIchibaLoadFail.bind(this));
-	}
-	clear() {
-		this.removeClass('is-loading is-success is-fail is-empty');
-		this._listContainer.textContent = '';
-	}
-	_onIchibaLoad(data) {
-		this.removeClass('is-loading');
-		const div = document.createElement('div');
-		div.innerHTML = data.main;
-		Array.from(div.querySelectorAll('[id]')).forEach(elm => {
-			elm.classList.add(`ichiba-${elm.id}`);
-			elm.removeAttribute('id');
-		});
-		Array.from(div.querySelectorAll('[style]'))
-			.forEach(elm => elm.removeAttribute('style'));
-		const items = div.querySelectorAll('.ichiba_mainitem');
-		if (!items || items.length < 1) {
-			this.addClass('is-empty');
-			this._listContainer.innerHTML = '<h2>貼られている商品はありません</h2>';
-		} else {
-			this._listContainer.innerHTML = div.innerHTML;
-		}
-		this.addClass('is-success');
-		this._listContainerDetails.setAttribute('open', 'open');
-		this._isLoading = false;
-	}
-	_onIchibaLoadFail() {
-		this.removeClass('is-loading');
-		this.addClass('is-fail');
-		this._isLoading = false;
-	}
-	get videoId() {
-		return this._videoId;
-	}
-	set videoId(v) {
-		this._videoId = v;
-	}
 }
-IchibaItemView.__tpl__ = (`
-		<div class="ZenzaIchibaItemView">
-			<div class="loadStart">
-				<div class="loadStartButton command" data-command="load">ニコニコ市場</div>
-			</div>
-			<div class="ichibaLoadingView">
-				<div class="loading-inner">
-					<span class="spinner">&#8987;</span>
-				</div>
-			</div>
-			<div class="ichibaItemListContainer">
-				<details class="ichibaItemListDetails">
-					<summary class="ichibaItemSummary loadStartButton">ニコニコ市場</summary>
-					<div class="ichibaItemListInner"></div>
-				</details>
-			</div>
-		</div>
-		`).trim();
-css.addStyle(`
-	.ZenzaIchibaItemView .loadStartButton {
-		color: #000;
-	}
-`, {className: 'screenMode for-popup ichiba', disabled: true});
-IchibaItemView.__css__ = (`
-		.ZenzaIchibaItemView {
-			text-align: center;
-			margin: 4px 8px 8px;
-			color: #ccc;
-		}
-			.ZenzaIchibaItemView .loadStartButton {
-				font-size: 24px;
-				padding: 8px 8px;
-				margin: 8px;
-				background: inherit;
-				color: inherit;
-				border: 1px solid #ccc;
-				outline: none;
-				line-height: 20px;
-				border-radius: 8px;
-				cursor: pointer;
-				user-select: none;
+CommonsTreeView._shadow_ = (`
+		<style>
+			.CommonsTreeDetails,
+			.CommonsTreeDetails * {
+				box-sizing: border-box;
 			}
-			.ZenzaIchibaItemView .loadStartButton:active::after {
+			.CommonsTreeDetails {
 				opacity: 0;
-			}
-			.ZenzaIchibaItemView .loadStartButton:active {
-				transform: translate(0, 2px);
-			}
-			.ZenzaIchibaItemView .ichibaLoadingView,
-			.ZenzaIchibaItemView .ichibaItemListContainer {
-				display: none;
-			}
-		.ZenzaIchibaItemView.is-loading {
-			cursor: wait;
-			user-select: none;
-		}
-			.ZenzaIchibaItemView.is-loading * {
 				pointer-events: none;
-			}
-			.ZenzaIchibaItemView.is-loading .ichibaLoadingView {
-				display: block;
-				font-size: 32px;
-			}
-			.ZenzaIchibaItemView.is-loading .loadStart,
-			.ZenzaIchibaItemView.is-loading .ichibaItemListContainer {
-				display: none;
-			}
-		.ZenzaIchibaItemView.is-success {
-			background: none;
-		}
-			.ZenzaIchibaItemView.is-success .ichibaLoadingView,
-			.ZenzaIchibaItemView.is-success .loadStart {
-				display: none;
-			}
-			.ZenzaIchibaItemView.is-success .ichibaItemListContainer {
-				display: block;
-			}
-			.ZenzaIchibaItemView.is-success details[open] {
-				border: 1px solid #666;
-				border-radius: 4px;
-				padding: 0px;
-			}
-			.ZenzaIchibaItemView.is-fail .ichibaLoadingView,
-			.ZenzaIchibaItemView.is-fail .loadStartButton {
-				display: none;
-			}
-			.ZenzaIchibaItemView.is-fail .ichibaItemListContainer {
-				display: block;
-			}
-		.ZenzaIchibaItemView .ichibaItemListContainer {
-			text-align: center;
-		}
-			.ZenzaIchibaItemView .ichibaItemListContainer .ichiba-ichiba_mainpiaitem,
-			.ZenzaIchibaItemView .ichibaItemListContainer .ichiba_mainitem {
-				display: inline-table;
-				width: 220px;
-				margin: 8px;
-				padding: 8px;
+				max-height: 0;
+				margin: 0 8px 0;
+				color: #ccc;
+				overflow: hidden;
+				text-align: left;
 				word-break: break-all;
-				text-shadow: 1px 1px 0 #000;
-				background: #666;
-				border-radius: 4px;
 			}
-			.ZenzaIchibaItemView .price,
-			.ZenzaIchibaItemView .buy,
-			.ZenzaIchibaItemView .click {
-				font-weight: bold;
+				.CommonsTreeDetails.is-Exist {
+					display: block;
+					pointer-events: auto;
+					max-height: 800px;
+					padding: 4px;
+					opacity: 1;
+					transition: opacity 0.4s linear 0.4s, max-height 1s ease-in, margin 0.4s ease-in;
+				}
+				.CommonsTreeDetails.is-Exist[open] {
+					border: 1px solid #666;
+					border-radius: 4px;
+					overflow: auto;
+				}
+			.CommonsTreeDetails .commonsTreeSummary {
+				height: 32px;
+				margin: 4px 4px 8px;
+				color: inherit;
+				outline: none;
+				border: 1px solid #ccc;
+				letter-spacing: 2px;
+				line-height: 32px;
+				font-size: 16px;
+				text-align: center;
+				cursor: pointer;
+				border-radius: 8px;
 			}
-		.ZenzaIchibaItemView a {
-			display: inline-block;
-			font-weight: bold;
-			text-decoration: none;
-			color: #ff9;
-			padding: 2px;
-		}
-		.ZenzaIchibaItemView a:visited {
-			color: #ffd;
-		}
-		.ZenzaIchibaItemView .rowJustify,
-		.ZenzaIchibaItemView .noItem,
-		.ichiba-ichibaMainLogo,
-		.ichiba-ichibaMainHeader,
-		.ichiba-ichibaMainFooter {
-			display: none;
-		}
-		`).trim();
+			.CommonsTreeDetails .CommonsTreeBody {
+				margin: auto;
+			}
+			.CommonsTreeDetails .CommonsTreeGroup + .CommonsTreeGroup {
+				margin-top: 8px;
+			}
+			.CommonsTreeDetails .CommonsTreeHeading {
+				color: #999;
+				font-size: 12px;
+				margin: 2px 2px 4px;
+			}
+			.CommonsTreeDetails .CommonsTreeList {
+				list-style: none;
+				margin: 0;
+				padding: 0;
+			}
+			.CommonsTreeDetails .CommonsTreeItem {
+				margin: 0 0 2px;
+			}
+			.CommonsTreeDetails .CommonsTreeLink {
+				display: flex;
+				gap: 6px;
+				align-items: center;
+				padding: 2px;
+				color: inherit;
+				text-decoration: none;
+				cursor: pointer;
+				border-radius: 2px;
+			}
+				.CommonsTreeDetails .CommonsTreeLink:hover {
+					background: rgba(255, 255, 255, 0.1);
+				}
+				.CommonsTreeDetails .CommonsTreeLink:hover .CommonsTreeTitle {
+					text-decoration: underline;
+				}
+			.CommonsTreeDetails .CommonsTreeThumbnail {
+				flex: 0 0 auto;
+				width: 64px;
+				height: 36px;
+				object-fit: cover;
+				background: rgba(0, 0, 0, 0.5);
+				border-radius: 2px;
+			}
+			.CommonsTreeDetails .CommonsTreeTitle {
+				flex: 1 1 auto;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				font-size: 12px;
+				line-height: 16px;
+			}
+			.CommonsTreeDetails .CommonsTreeMore,
+			.CommonsTreeDetails .CommonsTreeFooter {
+				display: inline-block;
+				margin: 4px 2px 0;
+				color: #ff9;
+				font-size: 12px;
+				text-decoration: none;
+			}
+				.CommonsTreeDetails .CommonsTreeMore:hover,
+				.CommonsTreeDetails .CommonsTreeFooter:hover {
+					text-decoration: underline;
+				}
+		</style>
+		<details class="root CommonsTreeDetails">
+			<summary class="commonsTreeSummary clickable">コンテンツツリー</summary>
+			<div class="CommonsTreeBody"></div>
+		</details>
+	`).trim();
+CommonsTreeView.__tpl__ = ('<div class="commonsTreeView"></div>').trim();
 class UaaView extends BaseViewComponent {
 	constructor({parentNode}) {
 		super({
@@ -30646,6 +30727,10 @@ class RelatedInfoMenu extends BaseViewComponent {
 		this._originalLink = shadow.querySelector('.originalLink');
 		this._twitterLink = shadow.querySelector('.twitterHashLink');
 		this._parentVideoLink = shadow.querySelector('.parentVideoLink');
+		this._baseVideoLink = shadow.querySelector('.baseVideoLink');
+	}
+	setParentVideoExist(isExist) {
+		this.setState({isParentVideoExist: !!isExist});
 	}
 	_onBodyClick() {
 		const shadow = this._shadow || this._view;
@@ -30658,17 +30743,22 @@ class RelatedInfoMenu extends BaseViewComponent {
 		shadow.open = false;
 		this._currentWatchId = videoInfo.watchId;
 		this._currentVideoId = videoInfo.videoId;
+		this._baseVideo = videoInfo.baseVideo ?? null;
 		this.setState({
 			isParentVideoExist: videoInfo.hasParentVideo,
 			isCommunity: videoInfo.isCommunityVideo,
-			isMymemory: videoInfo.isMymemory
+			isMymemory: videoInfo.isMymemory,
+			isBaseVideoExist: this._baseVideo != null
 		});
 		const vid = this._currentVideoId;
 		const wid = this._currentWatchId;
-		this._ginzaLink.setAttribute('href', `//www.nicovideo.jp/watch/${wid}`);
-		this._originalLink.setAttribute('href', `//www.nicovideo.jp/watch/${vid}`);
+		const watchPath = videoInfo.isShort ? 'shorts' : 'watch';
+		this._ginzaLink.setAttribute('href', `//www.nicovideo.jp/${watchPath}/${wid}`);
+		this._originalLink.setAttribute('href', `//www.nicovideo.jp/${watchPath}/${vid}`);
 		this._twitterLink.setAttribute('href', `https://twitter.com/hashtag/${vid}`);
 		this._parentVideoLink.setAttribute('href', `//commons.nicovideo.jp/works/${vid}`);
+		this._baseVideoLink.setAttribute('href', `//www.nicovideo.jp/watch/${this._baseVideo?.id ?? ''}`);
+		this._baseVideoLink.setAttribute('title', this._baseVideo?.title ?? '');
 		this.emit('close');
 	}
 	_onCommand(command, param) {
@@ -30696,6 +30786,11 @@ class RelatedInfoMenu extends BaseViewComponent {
 				break;
 			case 'open-original-video':
 				super._onCommand('openNow', this._currentVideoId);
+				break;
+			case 'open-base-video':
+				if (this._baseVideo != null) {
+					super._onCommand('openNow', this._baseVideo.id);
+				}
 				break;
 			default:
 				super._onCommand(command, param);
@@ -30747,12 +30842,14 @@ RelatedInfoMenu._shadow_ = (`
 				transform: translate(-100%, 0);
 			}
 				.RelatedInfoMenu .originalLinkMenu,
-				.RelatedInfoMenu .parentVideoMenu {
+				.RelatedInfoMenu .parentVideoMenu,
+				.RelatedInfoMenu .baseVideoMenu {
 					display: none;
 				}
 				.RelatedInfoMenu.is-Community        .originalLinkMenu,
 				.RelatedInfoMenu.is-Mymemory         .originalLinkMenu,
-				.RelatedInfoMenu.is-ParentVideoExist .parentVideoMenu {
+				.RelatedInfoMenu.is-ParentVideoExist .parentVideoMenu,
+				.RelatedInfoMenu.is-BaseVideoExist   .baseVideoMenu {
 					display: block;
 				}
 			.zenzaScreenMode_sideView .is-fullscreen .RelatedInfoMenu summary{
@@ -30816,6 +30913,10 @@ RelatedInfoMenu._shadow_ = (`
 					<li class="originalLinkMenu">
 						<a class="originalLink command"
 							rel="noopener" data-command="open-original-video">元動画を開く</a>
+					</li>
+					<li class="baseVideoMenu">
+						<a class="baseVideoLink command"
+							rel="noopener" data-command="open-base-video">元の動画を開く</a>
 					</li>
 					<li class="parentVideoMenu">
 						<a class="parentVideoLink command"
@@ -31119,31 +31220,64 @@ class HoverMenu {
 		}
 		initializeGinzaSlayer(dialog, query);
 		await uq.complete();
+		const isZenzaPlaying = () => {
+			if (!document.body.classList.contains('showNicoVideoPlayerDialog')) {
+				return false;
+			}
+			return !/(^|[^\w])zenzaScreenMode_(small|sideView)([^\w]|$)/.test(document.body.className);
+		};
 		const stopPlayer = (ev) => {
-			if (!document.body.classList.contains('showNicoVideoPlayerDialog')) return;
-			if (/(^|[^\w])zenzaScreenMode_(small|sideView)([^\w]|$)/.test(document.body.className)) return;
+			if (!isZenzaPlaying()) {
+				return;
+			}
 			ev.target.pause();
 		};
-		const video = document.querySelector('.grid-area_\\[player\\] video');
-		if (video !== null) {
+		const isOfficialVideo = video =>
+			video.getRootNode() === document &&
+			!!document.getElementById('root')?.contains(video);
+		if (!HTMLMediaElement.__zenzaPlayBlocked) {
+			HTMLMediaElement.__zenzaPlayBlocked = true;
+			const nativePlay = HTMLMediaElement.prototype.play;
+			HTMLMediaElement.prototype.play = function () {
+				if (isOfficialVideo(this) && isZenzaPlaying()) {
+					return Promise.resolve();
+				}
+				return nativePlay.call(this);
+			};
+		}
+		const watchedVideos = new WeakSet();
+		const watchVideo = video => {
+			if (watchedVideos.has(video)) {
+				return;
+			}
+			watchedVideos.add(video);
 			video.addEventListener('play', stopPlayer);
-			video.pause();
+			if (!video.paused) {
+				video.pause();
+			}
+		};
+		const watchVideosIn = node => {
+			if (!(node instanceof Element)) {
+				return;
+			}
+			if (node.tagName === 'VIDEO') {
+				watchVideo(node);
+				return;
+			}
+			node.querySelectorAll('video').forEach(watchVideo);
+		};
+		const root = document.getElementById('root');
+		if (root == null) {
 			return;
 		}
-		new MutationObserver((records, observer) => {
+		watchVideosIn(root);
+		new MutationObserver(records => {
 			for (const record of records) {
-				if(record.addedNodes.length === 0) {
-					continue;
+				for (const node of record.addedNodes) {
+					watchVideosIn(node);
 				}
-				const video = record.target.querySelector('.grid-area_\\[player\\] video');
-				if (video === null) {
-					continue;
-				}
-				video.addEventListener('play', stopPlayer);
-				video.pause();
-				observer.disconnect();
 			}
-		}).observe(document.getElementById('root'), {
+		}).observe(root, {
 			childList: true,
 			subtree: true,
 		});
@@ -31503,20 +31637,13 @@ const replaceRedirectLinks = async () => {
 		};
 		const playlistAdd = watchId => sendOrExecCommand('playlistAdd', watchId);
 		const insertPlaylist = watchId => sendOrExecCommand('playlistInsert', watchId);
-		const deflistAdd = ({watchId, description, token}) => {
-			const mylistApiLoader = ZenzaWatch.api.MylistApiLoader;
-			if (token) {
-				mylistApiLoader.setCsrfToken(token);
-			}
-			return mylistApiLoader.addDeflistItem(watchId, description);
-		};
-		const deflistRemove = ({watchId, token}) => {
-			const mylistApiLoader = ZenzaWatch.api.MylistApiLoader;
-			if (token) {
-				mylistApiLoader.setCsrfToken(token);
-			}
-			return mylistApiLoader.removeDeflistItem(watchId);
-		};
+		const deflistAdd = ({watchId, description}) =>
+			ZenzaWatch.api.MylistApiLoader.addDeflistItem(watchId, description);
+		const deflistRemove = ({watchId}) =>
+			ZenzaWatch.api.MylistApiLoader.removeDeflistItem(watchId);
+		const mylistAdd = ({watchId, mylistId, description}) =>
+			ZenzaWatch.api.MylistApiLoader.addMylistItem(watchId, mylistId, description);
+		const mylistList = () => ZenzaWatch.api.MylistApiLoader.getMylistList();
 		const echo = (msg = 'こんにちはこんにちは！') => sendExecCommand('echo', msg);
 		Object.assign(ZenzaWatch.external, {
 			execCommand: command,
@@ -31527,6 +31654,8 @@ const replaceRedirectLinks = async () => {
 			sendOrOpen,
 			deflistAdd,
 			deflistRemove,
+			mylistAdd,
+			mylistList,
 			hello: BroadcastEmitter.hello,
 			ping: BroadcastEmitter.ping,
 			echo,
@@ -31548,6 +31677,10 @@ const replaceRedirectLinks = async () => {
 				open,
 				sendOrOpen,
 				sendOrExecCommand,
+				deflistAdd,
+				deflistRemove,
+				mylistAdd,
+				mylistList,
 				hello: BroadcastEmitter.hello,
 				ping: BroadcastEmitter.ping,
 				echo,
