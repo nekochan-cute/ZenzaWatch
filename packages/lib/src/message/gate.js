@@ -13,7 +13,7 @@ post = {
 //===BEGIN===
 const gate = () => {
 
-  const post = function(body, {type, token, sessionId, origin} = {}) {
+  const post = function(body, {type, token, sessionId, origin, transfer} = {}) {
     sessionId = sessionId || '';
     origin = origin || '';
     this.origin = origin = origin || this.origin || document.referrer;
@@ -33,7 +33,7 @@ const gate = () => {
         this.port = this.channel.port1;
         this.port.start();
       } else {
-        this.port.postMessage(msg);
+        this.port.postMessage(msg, transfer || []);
       }
     } catch (e) {
       console.error('%cError: parent.postMessage - ', 'color: red; background: yellow', e);
@@ -125,7 +125,8 @@ const gate = () => {
       return Promise.resolve({buffer, init, headers});
     }).then(({buffer, init, headers}) => {
       const result = {status: 'ok', command, params: {buffer, init, headers}};
-      post(result, {sessionId});
+      // セグメントは数MBになるので、コピーせず所有権を移して送る
+      post(result, {sessionId, transfer: [buffer]});
       return result;
     }).catch(({status, message}) => {
       post({status, message, command}, {sessionId});
