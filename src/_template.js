@@ -184,7 +184,13 @@ await Config.promise('restore');
       window.ZenzaWatch = ZenzaWatch;
       window.Navi = Navi;
     } else {
-      window.ZenzaWatch = {config: ZenzaWatch.config};
+      // 外部サイトでも ZenzaHLS (_hls.js) が動くようになったので、
+      // 本体と ZenzaHLS の間で受け渡している isHLSSupported / hlsConfig /
+      // createVideoElement が見えるように debug を共有する
+      window.ZenzaWatch = {
+        config: ZenzaWatch.config,
+        debug: ZenzaWatch.debug
+      };
       window.Navi = {config: Navi.config};
     }
     window.ZenzaWatch.emitter = ZenzaWatch.emitter = new Emitter();
