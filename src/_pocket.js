@@ -2396,6 +2396,9 @@ const emitter = util.emitter;
       }
 
       show() {
+        // 新しいサイトのヘッダーはページ読み込み後に描画されるので、
+        // 初期化時のログイン判定は当てにならない。表示のたびに判定し直す
+        this.toggleClass('is-guest', !util.isLogin());
         this.addClass('is-show');
       }
 
