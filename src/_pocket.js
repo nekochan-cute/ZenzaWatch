@@ -150,6 +150,9 @@ AntiPrototypeJs().then(() => {
       .is-deflistUpdating .mylistPocketButton.deflist-add::after,
       .is-deflistSuccess  .mylistPocketButton.deflist-add::after,
       .is-deflistFail     .mylistPocketButton.deflist-add::after,
+      .is-mylistUpdating  .mylistPocketButton.mylist-add::after,
+      .is-mylistSuccess   .mylistPocketButton.mylist-add::after,
+      .is-mylistFail      .mylistPocketButton.mylist-add::after,
       .mylistPocketButton:hover::after, #mylistPocket-poupup [tooltip] {
         content: attr(tooltip);
         position: absolute;
@@ -167,7 +170,8 @@ AntiPrototypeJs().then(() => {
         pointer-events: none;
       }
 
-      .is-deflistUpdating .mylistPocketButton.deflist-add {
+      .is-deflistUpdating .mylistPocketButton.deflist-add,
+      .is-mylistUpdating  .mylistPocketButton.mylist-add {
         cursor: wait;
         opacity: 0.9;
         transform: scale(1.0);
@@ -177,20 +181,25 @@ AntiPrototypeJs().then(() => {
         border-style: inset;
       }
       .is-deflistSuccess .mylistPocketButton.deflist-add,
-      .is-deflistFail    .mylistPocketButton.deflist-add {
+      .is-deflistFail    .mylistPocketButton.deflist-add,
+      .is-mylistSuccess  .mylistPocketButton.mylist-add,
+      .is-mylistFail     .mylistPocketButton.mylist-add {
         transform: scale(1.0);
         box-shadow: none;
         transition: none;
       }
-      .is-deflistSuccess  .mylistPocketButton.deflist-add::after {
+      .is-deflistSuccess  .mylistPocketButton.deflist-add::after,
+      .is-mylistSuccess   .mylistPocketButton.mylist-add::after {
         content: attr(data-result);
         background: #393;
       }
-      .is-deflistFail     .mylistPocketButton.deflist-add::after {
+      .is-deflistFail     .mylistPocketButton.deflist-add::after,
+      .is-mylistFail      .mylistPocketButton.mylist-add::after {
         content: attr(data-result);
         background: #933;
       }
-      .is-deflistUpdating .mylistPocketButton.deflist-add::after {
+      .is-deflistUpdating .mylistPocketButton.deflist-add::after,
+      .is-mylistUpdating  .mylistPocketButton.mylist-add::after {
         content: '更新中';
         background: #333;
       }
@@ -209,6 +218,86 @@ AntiPrototypeJs().then(() => {
 
       .mylistPocketHoverMenu.is-show {
         display: block;
+      }
+
+      #mylistPocket-mylistSelect {
+        display: none;
+        position: fixed;
+        /* 情報パネル(10000000)より前面に出す */
+        z-index: 10000100;
+        min-width: 160px;
+        max-width: 320px;
+        padding: 2px 0;
+        font-size: 13px;
+        line-height: 20px;
+        text-align: left;
+        background: #333;
+        color: #fff;
+        border: 1px solid #ccc;
+        box-shadow: 2px 2px 8px #000;
+        user-select: none;
+      }
+
+      #mylistPocket-mylistSelect.is-show {
+        display: block;
+      }
+
+      #mylistPocket-mylistSelect .caption {
+        padding: 2px 8px;
+        text-align: center;
+        font-weight: bolder;
+        background: #666;
+        color: #fff;
+      }
+
+      #mylistPocket-mylistSelect ul {
+        margin: 0;
+        padding: 0;
+        max-height: 50vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: none;
+      }
+
+      #mylistPocket-mylistSelect li {
+        display: flex;
+        align-items: center;
+        margin: 2px 4px;
+        padding: 2px 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        cursor: pointer;
+        list-style: none;
+      }
+      #mylistPocket-mylistSelect li + li {
+        border-top: 1px dotted #666;
+      }
+      #mylistPocket-mylistSelect li:hover {
+        background: #663;
+      }
+      #mylistPocket-mylistSelect li.is-message {
+        cursor: default;
+        color: #aaa;
+      }
+      #mylistPocket-mylistSelect li.is-message:hover {
+        background: none;
+      }
+
+      #mylistPocket-mylistSelect .mylistIcon {
+        flex: 0 0 auto;
+        width: 14px;
+        height: 11px;
+        margin-right: 8px;
+      }
+      #mylistPocket-mylistSelect .mylistIcon > svg {
+        width: 100%;
+        height: 100%;
+        fill: #ccc;
+      }
+
+      #mylistPocket-mylistSelect .mylistName {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       #mylistPocket-popup {
@@ -512,11 +601,18 @@ AntiPrototypeJs().then(() => {
       <div class="mylistPocketHoverMenu scalingUI zen-family">
         <button class="mylistPocketButton command deflist-add wwwZenzaOnly is-need-login" data-command="deflist"
           tooltip="とりあえずマイリスト">&#x271A;</button>
+        <button class="mylistPocketButton command mylist-add wwwZenzaOnly is-need-login" data-command="mylist-add"
+          tooltip="マイリストに登録">My</button>
         <button class="mylistPocketButton command info" data-command="info"
           tooltip="動画情報を表示">？</button>
         <button class="mylistPocketButton command playlist-queue zenzaMenu" data-command="playlist-queue"
           tooltip="ZenzaWatchのプレイリストに追加">▶</button>
       </div>
+      </div>
+
+      <div id="mylistPocket-mylistSelect" class="zen-family">
+        <div class="caption">マイリストに登録</div>
+        <ul></ul>
       </div>
 
       <div id="mylistPocket-popup" class="zen-family">
@@ -565,6 +661,9 @@ AntiPrototypeJs().then(() => {
           }
           .root.is-otherDomain:not(.is-zenzaReady) .wwwZenzaOnly {
             display: none;
+          }
+          .root.is-guest .is-need-login {
+            display: none !important;
           }
 
           * {
@@ -629,6 +728,9 @@ AntiPrototypeJs().then(() => {
           .is-deflistUpdating .deflist-add::after,
           .is-deflistSuccess  .deflist-add::after,
           .is-deflistFail     .deflist-add::after,
+          .is-mylistUpdating  .mylist-add::after,
+          .is-mylistSuccess   .mylist-add::after,
+          .is-mylistFail      .mylist-add::after,
           [tooltip]:hover::after {
             content: attr(tooltip);
             position: absolute;
@@ -1099,7 +1201,8 @@ AntiPrototypeJs().then(() => {
                 box-shadow: 0 0 16px #000;
               }
 
-              .is-deflistUpdating .deflist-add {
+              .is-deflistUpdating .deflist-add,
+              .is-mylistUpdating  .mylist-add {
                 cursor: wait;
                 opacity: 0.9;
                 transform: scale(1.0);
@@ -1107,20 +1210,25 @@ AntiPrototypeJs().then(() => {
                 transition: none;
               }
               .is-deflistSuccess .deflist-add,
-              .is-deflistFail    .deflist-add {
+              .is-deflistFail    .deflist-add,
+              .is-mylistSuccess  .mylist-add,
+              .is-mylistFail     .mylist-add {
                 transform: scale(1.0);
                 box-shadow: none;
                 transition: none;
               }
-              .is-deflistSuccess  .deflist-add::after {
+              .is-deflistSuccess  .deflist-add::after,
+              .is-mylistSuccess   .mylist-add::after {
                 content: attr(data-result);
                 background: #393;
               }
-              .is-deflistFail     .deflist-add::after {
+              .is-deflistFail     .deflist-add::after,
+              .is-mylistFail      .mylist-add::after {
                 content: attr(data-result);
                 background: #933;
               }
-              .is-deflistUpdating .deflist-add::after {
+              .is-deflistUpdating .deflist-add::after,
+              .is-mylistUpdating  .mylist-add::after {
                 content: '更新中';
                 background: #333;
               }
@@ -1455,9 +1563,9 @@ AntiPrototypeJs().then(() => {
                   tooltip="とりあえずマイリスト"
                 >とり</button>
                 <button
-                  class="pocket-button command command-watch-id"
-                  data-command="mylist-window"
-                  tooltip="マイリスト"
+                  class="mylistPocketButton mylist-add pocket-button command command-watch-id is-need-login"
+                  data-command="mylist-add"
+                  tooltip="マイリストに登録"
                 >マイ</button>
                 <button
                   class="pocket-button command command-watch-id"
@@ -2269,6 +2377,31 @@ Object.assign(util, textUtil);
 const emitter = util.emitter;
 //@require MylistApiLoader
 
+    // 登録系ボタンの状態表示. HoverMenu と VideoInfoView で共通
+    const ButtonFeedback = {
+      begin(view, kind) {
+        view.addClass(`is-${kind}Updating`);
+      },
+      end(view, kind, button, result) {
+        view.addClass(`is-${kind}Success`);
+        window.setTimeout(() => { view.removeClass(`is-${kind}Success`); }, 3000);
+
+        if (button) {
+          button.setAttribute('data-result', (result && result.message) || '登録しました');
+        }
+        view.removeClass(`is-${kind}Updating`);
+      },
+      fail(view, kind, button, result) {
+        view.addClass(`is-${kind}Fail`);
+        window.setTimeout(() => { view.removeClass(`is-${kind}Fail`); }, 3000);
+
+        if (button) {
+          button.setAttribute('data-result', (result && result.message) || '登録失敗');
+        }
+        view.removeClass(`is-${kind}Updating`);
+      }
+    };
+
 
     class HoverMenu extends Emitter {
       constructor() {
@@ -2309,6 +2442,7 @@ const emitter = util.emitter;
         this.toggleClass('is-otherDomain', location.host !== 'www.nicovideo.jp');
         this.toggleClass('is-guest', !util.isLogin());
         this._deflistButton = this._view.querySelector('.mylistPocketButton.deflist-add');
+        this._mylistButton  = this._view.querySelector('.mylistPocketButton.mylist-add');
         MylistPocket.debug.hoverMenu = this._view;
       }
 
@@ -2359,6 +2493,11 @@ const emitter = util.emitter;
           this.hide();
         } else if (command === 'playlist-queue') {
           this.emit('playlist-queue', watchId, this);
+        } else if (command === 'mylist-add') {
+          this.emit('mylist-select-open', {
+            watchId: watchId || this._watchId,
+            target: this._mylistButton
+          }, this);
         } else {
           if (e.button !== 0 || e.shiftKey) {
             this._deflistRemove(watchId);
@@ -2442,23 +2581,205 @@ const emitter = util.emitter;
       }
 
       notifyBeginDeflistUpdate(/*watchId*/) {
-        this.addClass('is-deflistUpdating');
+        ButtonFeedback.begin(this, 'deflist');
       }
 
       notifyEndDeflistUpdate(result) {
-        this.addClass('is-deflistSuccess');
-        window.setTimeout(() => { this.removeClass('is-deflistSuccess'); }, 3000);
-
-        this._deflistButton.setAttribute('data-result', result.message || '登録しました');
-        this.removeClass('is-deflistUpdating');
+        ButtonFeedback.end(this, 'deflist', this._deflistButton, result);
       }
 
       notifyFailDeflistUpdate(result) {
-        this.addClass('is-deflistFail');
-        window.setTimeout(() => { this.removeClass('is-deflistFail'); }, 3000);
+        ButtonFeedback.fail(this, 'deflist', this._deflistButton, result);
+      }
 
-        this._deflistButton.setAttribute('data-result', result.message || '登録失敗');
-        this.removeClass('is-deflistUpdating');
+      notifyBeginMylistUpdate() {
+        ButtonFeedback.begin(this, 'mylist');
+      }
+
+      notifyEndMylistUpdate(result) {
+        ButtonFeedback.end(this, 'mylist', this._mylistButton, result);
+      }
+
+      notifyFailMylistUpdate(result) {
+        ButtonFeedback.fail(this, 'mylist', this._mylistButton, result);
+      }
+    }
+
+
+    // マイリスト選択メニュー
+    // ホバーメニューと情報パネルの両方から使うので、DOMは1つだけ作って位置を都度調整する
+    class MylistSelectMenu extends Emitter {
+      constructor() {
+        super();
+        this._view = document.getElementById('mylistPocket-mylistSelect');
+        this._ul = this._view.querySelector('ul');
+        this._list = null;
+        this._watchId = '';
+        this._trigger = null;
+        this._src = null;
+
+        this._view.addEventListener('mousedown', e => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        this._view.addEventListener('contextmenu', e => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        this._view.addEventListener('click', this._onClick.bind(this));
+
+        this._onBodyMouseDown = this._onBodyMouseDown.bind(this);
+        document.body.addEventListener('mousedown', this._onBodyMouseDown, {passive: true});
+        window.addEventListener('blur', () => this.hide());
+
+        MylistPocket.debug.mylistSelectMenu = this;
+      }
+
+      get isShow() {
+        return this._view.classList.contains('is-show');
+      }
+
+      // 一覧はログイン中でないと取得できない
+      open({watchId, trigger, src}) {
+        if (!util.isLogin()) { return Promise.resolve(); }
+        this._watchId = watchId;
+        this._trigger = trigger || null;
+        this._src = src || null;
+
+        this._renderLoading();
+        this._view.classList.add('is-show');
+        this._position();
+
+        return this._load().then(list => {
+          if (!this.isShow) { return; }
+          this._render(list);
+          this._position();
+        }, () => {
+          if (!this.isShow) { return; }
+          this._renderMessage('マイリストを取得できません');
+          this._position();
+        });
+      }
+
+      hide() {
+        this._view.classList.remove('is-show');
+        this._trigger = null;
+      }
+
+      toggle(params) {
+        if (this.isShow) {
+          this.hide();
+          return Promise.resolve();
+        }
+        return this.open(params);
+      }
+
+      _load() {
+        if (this._list) { return Promise.resolve(this._list); }
+        return getMylistList().then(list => {
+          this._list = list || [];
+          return this._list;
+        });
+      }
+
+      _position() {
+        const rect = this._trigger ?
+          this._trigger.getBoundingClientRect() :
+          {left: 0, right: 0, top: window.innerHeight, bottom: window.innerHeight};
+        const width  = this._view.offsetWidth;
+        const height = this._view.offsetHeight;
+        let left = rect.right - width;
+        let top  = rect.bottom + 4;
+
+        if (top + height > window.innerHeight) {
+          top = Math.max(0, rect.top - height - 4);
+        }
+        left = Math.max(0, Math.min(left, window.innerWidth - width));
+        this._view.style.left = left + 'px';
+        this._view.style.top  = top + 'px';
+      }
+
+      _renderLoading() {
+        this._renderMessage('読み込み中');
+      }
+
+      _renderMessage(message) {
+        const ul = this._ul;
+        const li = document.createElement('li');
+        li.className = 'is-message';
+        li.textContent = message;
+        ul.textContent = '';
+        ul.appendChild(li);
+      }
+
+      _render(list) {
+        if (!list || list.length < 1) {
+          this._renderMessage('マイリストがありません');
+          return;
+        }
+        const ul = this._ul;
+        ul.textContent = '';
+        list.forEach(mylist => {
+          const li = document.createElement('li');
+          li.dataset.mylistId   = mylist.id;
+          li.dataset.mylistName = mylist.name;
+          li.title = `${mylist.name}に登録`;
+
+          const name = document.createElement('span');
+          name.className = 'mylistName';
+          name.textContent = mylist.name;
+
+          li.append(this._createIcon(mylist), name);
+          ul.appendChild(li);
+        });
+      }
+
+      // プレイヤーの .mylistSelectMenu と同じフォルダアイコン
+      _createIcon(mylist) {
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const icon = document.createElement('span');
+        icon.className = 'mylistIcon';
+
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        const folder = document.createElementNS(SVG_NS, 'path');
+        folder.setAttribute('d', 'M1 6V5c0-1.1.9-2 2-2h7a2 2 0 011.6.9L13 6h8a2 2 0 012 2v12a2 2 0 01-2 2H3a2 2 0 01-2-2V6z');
+        if (mylist.isPublic) {
+          folder.setAttribute('fill-rule', 'evenodd');
+          svg.append(folder);
+        } else {
+          const graph = document.createElementNS(SVG_NS, 'g');
+          graph.setAttribute('fill-rule', 'evenodd');
+          const locked = document.createElementNS(SVG_NS, 'path');
+          locked.setAttribute('fill', '#FFF');
+          locked.setAttribute('d', 'M17 13v-.5a1.5 1.5 0 00-3 0v.5h3zm2 0h1.2c.4 0 .8.4.8.9V19c0 .5-.4.9-.9.9H11a.9.9 0 01-.9-.9V14c0-.5.4-.9.9-.9H12v-.5a3.5 3.5 0 117 0v.5zm-3.5 2a1.5 1.5 0 100 3 1.5 1.5 0 000-3z');
+          graph.append(folder, locked);
+          svg.append(graph);
+        }
+        icon.append(svg);
+        return icon;
+      }
+
+      _onClick(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const li = e.target.closest('li[data-mylist-id]');
+        if (!li) { return; }
+        const {mylistId, mylistName} = li.dataset;
+        const src = this._src;
+        this.hide();
+        this.emit('select', {
+          watchId: this._watchId,
+          mylistId,
+          mylistName
+        }, src);
+      }
+
+      _onBodyMouseDown(e) {
+        if (!this.isShow) { return; }
+        if (this._view.contains(e.target)) { return; }
+        if (this._trigger && this._trigger.contains(e.target)) { return; }
+        this.hide();
       }
     }
 
@@ -2537,8 +2858,11 @@ const emitter = util.emitter;
         this._videoInfoArea = this._rootDom.querySelector('.video-info');
         this._deflistButton =
           this._rootDom.querySelector('.mylistPocketButton.deflist-add');
+        this._mylistButton =
+          this._rootDom.querySelector('.mylistPocketButton.mylist-add');
 
         this.toggleClass('is-otherDomain', location.host !== 'www.nicovideo.jp');
+        this.toggleClass('is-guest', !util.isLogin());
         this.toggleClass('is-firefox', util.isFirefox());
 
         MylistPocket.external.observe({
@@ -2714,6 +3038,12 @@ const emitter = util.emitter;
                 value: owner
               }, this);
             }
+            break;
+          case 'mylist-add':
+            this.emit('command', 'mylist-select-open', {
+              watchId: this._videoInfo.watchId,
+              target: elm
+            }, this);
             break;
           case 'mylist-comment-open':
             this.emit('command', command, this._videoInfo.watchId);
@@ -2944,23 +3274,27 @@ const emitter = util.emitter;
       }
 
       notifyBeginDeflistUpdate(/*watchId*/) {
-        this.addClass('is-deflistUpdating');
+        ButtonFeedback.begin(this, 'deflist');
       }
 
       notifyEndDeflistUpdate(result) {
-        this.addClass('is-deflistSuccess');
-        window.setTimeout(() => { this.removeClass('is-deflistSuccess'); }, 3000);
-
-        this._deflistButton.setAttribute('data-result', result.message || '登録しました');
-        this.removeClass('is-deflistUpdating');
+        ButtonFeedback.end(this, 'deflist', this._deflistButton, result);
       }
 
       notifyFailDeflistUpdate(result) {
-        this.addClass('is-deflistFail');
-        window.setTimeout(() => { this.removeClass('is-deflistFail'); }, 3000);
+        ButtonFeedback.fail(this, 'deflist', this._deflistButton, result);
+      }
 
-        this._deflistButton.setAttribute('data-result', result.message || '登録失敗');
-        this.removeClass('is-deflistUpdating');
+      notifyBeginMylistUpdate() {
+        ButtonFeedback.begin(this, 'mylist');
+      }
+
+      notifyEndMylistUpdate(result) {
+        ButtonFeedback.end(this, 'mylist', this._mylistButton, result);
+      }
+
+      notifyFailMylistUpdate(result) {
+        ButtonFeedback.fail(this, 'mylist', this._mylistButton, result);
       }
     }
 
@@ -3051,6 +3385,41 @@ const emitter = util.emitter;
     }
 
 
+
+    // サムネ情報が取れなくても登録自体は続行したいのでタイムアウトを設ける
+    const loadThumbInfoForComment = (watchId) => {
+      return Promise.race([
+        ThumbInfoLoader.load(watchId),
+        new Promise(resolve => window.setTimeout(resolve, 3000, null))
+      ]).catch(() => null);
+    };
+
+    // マイリストのコメント(説明欄)に投稿者情報を入れる場合の文字列
+    const buildMylistDescription = async (watchId) => {
+      if (!config.props.mylist.enableAutoComment) { return ''; }
+      const info = await loadThumbInfoForComment(watchId);
+      if (!info || !info.owner) { return ''; }
+      const originalVideoId = info.originalVideoId ?
+        `元動画: ${info.originalVideoId}` : '';
+      return `投稿者: ${info.owner.name} ${info.owner.linkId} ${originalVideoId}`;
+    };
+
+    const getMylistList = () => {
+      if (location.host === 'www.nicovideo.jp') {
+        return MylistApiLoader.getMylistList();
+      }
+      return ZenzaDetector.detect().then(zenza => zenza.external.mylistList());
+    };
+
+    const mylistAdd = (watchId, mylistId) => {
+      return buildMylistDescription(watchId).then((description) => {
+        if (location.host === 'www.nicovideo.jp') {
+          return MylistApiLoader.addMylistItem(watchId, mylistId, description);
+        }
+        return ZenzaDetector.detect().then(
+          zenza => zenza.external.mylistAdd({watchId, mylistId, description}));
+      });
+    };
 
     const deflistAdd = (watchId) => {
       const enableAutoComment = config.props.mylist.enableAutoComment;
@@ -3346,6 +3715,24 @@ const emitter = util.emitter;
                 console.error('deflist-remove-result', err);
                 src.notifyFailDeflistUpdate(err);
               });
+          case 'mylist-add': {
+            const {watchId, mylistId, mylistName} = param;
+            const suffix = mylistName ? `: ${mylistName}` : '';
+            src.notifyBeginMylistUpdate();
+
+            return mylistAdd(watchId, mylistId)
+              .then(util.getSleepPromise(1000, 'mylist-add'))
+              .then((result) => {
+                src.notifyEndMylistUpdate({
+                  message: `${(result && result.message) || '登録しました'}${suffix}`
+                });
+              }, (err) => {
+                console.error('mylist-add-result', err);
+                src.notifyFailMylistUpdate({
+                  message: `${(err && err.message) || '登録失敗'}${suffix}`
+                });
+              });
+          }
           case 'add-ng-word':  case 'add-ng-tag':  case 'add-ng-owner':
           case 'add-fav-word': case 'add-fav-tag': case 'add-fav-owner':
           case 'remove-ng-word':  case 'remove-ng-tag':  case 'remove-ng-owner':
@@ -3713,10 +4100,26 @@ const emitter = util.emitter;
 
       const infoView = createVideoInfoView();
       const dispatcher = createCommandDispatcher({infoView});
+      const mylistSelectMenu = new MylistSelectMenu();
 
-      infoView.on('command', dispatcher);
+      const openMylistSelect = ({watchId, target}, src) =>
+        mylistSelectMenu.toggle({watchId, trigger: target, src});
+
+      mylistSelectMenu.on('select', ({watchId, mylistId, mylistName}, src) => {
+        dispatcher('mylist-add', {watchId, mylistId, mylistName}, src);
+      });
+
+      infoView.on('command', (command, param, src) => {
+        if (command === 'mylist-select-open') {
+          return openMylistSelect(param, src);
+        }
+        return dispatcher(command, param, src);
+      });
 
       const hoverMenu = new HoverMenu();
+      hoverMenu.on('mylist-select-open', (params, src) => {
+        openMylistSelect(params, src);
+      });
       hoverMenu.on('info', (watchId) => {
         hoverMenu.isBusy = true;
 

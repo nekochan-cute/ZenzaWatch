@@ -352,6 +352,11 @@ const {initialize} = (() => {
       return mylistApiLoader.removeDeflistItem(watchId);
     };
 
+    const mylistAdd = ({watchId, mylistId, description}) =>
+      ZenzaWatch.api.MylistApiLoader.addMylistItem(watchId, mylistId, description);
+
+    const mylistList = () => ZenzaWatch.api.MylistApiLoader.getMylistList();
+
     const echo = (msg = 'こんにちはこんにちは！') => sendExecCommand('echo', msg);
 
     Object.assign(ZenzaWatch.external, {
@@ -363,6 +368,8 @@ const {initialize} = (() => {
       sendOrOpen,
       deflistAdd,
       deflistRemove,
+      mylistAdd,
+      mylistList,
       hello: BroadcastEmitter.hello,
       ping: BroadcastEmitter.ping,
       echo,
@@ -386,6 +393,8 @@ const {initialize} = (() => {
         sendOrExecCommand,
         deflistAdd,
         deflistRemove,
+        mylistAdd,
+        mylistList,
         hello: BroadcastEmitter.hello,
         ping: BroadcastEmitter.ping,
         echo,
