@@ -727,6 +727,144 @@ AntiPrototypeJs().then(() => {
         return event;
       };
 
+      // 外部サイト (Google / Bing / feedly) ではページ直の fetch が
+      // CORS とサードパーティ Cookie の壁で配信サーバーに届かない。
+      // ZenzaWatch 本体が用意している CrossDomainGate の橋渡しを使う
+      const isExternalSite = () => !/\.nicovideo\.jp$/.test(location.host);
+      const gateFetch = (url, options) => {
+        const net = window.ZenzaWatch && window.ZenzaWatch.net;
+        if (!net || typeof net.fetch !== 'function') {
+          return Promise.reject({status: 'fail', message: 'gate fetch is not available'});
+        }
+        return net.fetch(url, options);
+      };
+
+      // hls.js 1.x の loader インターフェースを gate 越しに実装する。
+      // マニフェスト・プレイリスト・鍵の取得がこれを通る
+      // @see https://github.com/video-dev/hls.js/blob/master/docs/API.md#loader
+      const createGateLoader = Hls => {
+        // gate に渡せるのは構造化クローンできる素のオブジェクトだけ。
+        // Headers や Request を渡すと DataCloneError になる
+        const createOptions = context => {
+          const headers = {};
+          if (context.headers) {
+            Object.keys(context.headers).forEach(key => {
+              headers[key] = context.headers[key];
+            });
+          }
+          if (context.rangeEnd) {
+            headers.Range = `bytes=${context.rangeStart || 0}-${context.rangeEnd - 1}`;
+          }
+          return {
+            method: 'GET',
+            credentials: 'include',
+            headers,
+            // gate は ArrayBuffer のまま返せる
+            _format: 'arraybuffer'
+          };
+        };
+
+        class GateLoader extends Hls.DefaultConfig.loader {
+          constructor(config) {
+            super(config);
+            this._gateCallbacks = null;
+            this._gateContext = null;
+            this._gateAborted = false;
+            this._gateRequestId = 0;
+          }
+
+          load(context, config, callbacks) {
+            const stats = this.stats;
+            if (stats.loading.start) {
+              throw new Error('Loader can only be used once.');
+            }
+            stats.loading.start = performance.now();
+            stats.loading.first = 0;
+            stats.loading.end = 0;
+            stats.loaded = 0;
+            stats.aborted = false;
+            this._gateContext = context;
+            this._gateCallbacks = callbacks;
+            this._gateAborted = false;
+            const requestId = this._gateRequestId + 1;
+            this._gateRequestId = requestId;
+            this._gateLoad(context, callbacks, requestId);
+          }
+
+          _isCurrent(requestId) {
+            return !this._gateAborted && requestId === this._gateRequestId && !!this.stats;
+          }
+
+          async _gateLoad(context, callbacks, requestId) {
+            const stats = this.stats;
+            let result;
+            try {
+              result = await gateFetch(context.url, createOptions(context));
+            } catch (e) {
+              if (!this._isCurrent(requestId)) { return; }
+              stats.loading.end = performance.now();
+              return callbacks.onError({
+                code: 0,
+                text: (e && (e.message || e.status)) || 'gate fetch failed'
+              }, context, e, stats);
+            }
+            if (!this._isCurrent(requestId)) { return; }
+            if (!result || !result.init || !result.buffer) {
+              stats.loading.end = performance.now();
+              return callbacks.onError({code: 0, text: 'invalid gate response'},
+                context, result, stats);
+            }
+
+            const {buffer, init} = result;
+            const status = init.status;
+            stats.loading.first = performance.now();
+            stats.loading.end = stats.loading.first;
+            if (!(status >= 200 && status < 300)) {
+              return callbacks.onError({code: status, text: init.statusText || ''},
+                context, result, stats);
+            }
+
+            stats.loaded = stats.total = buffer.byteLength;
+            const time = stats.loading.end - stats.loading.start;
+            stats.bwEstimate = time > 0 ? Math.round(buffer.byteLength * 8000 / time) : 0;
+
+            let data = buffer;
+            if (context.responseType !== 'arraybuffer') {
+              // プレイリストはテキスト。gate は常に ArrayBuffer で返してくる
+              const text = new TextDecoder('utf-8').decode(buffer);
+              data = context.responseType === 'json' ? JSON.parse(text) : text;
+            }
+            // hls.js は onSuccess が非同期に呼ばれる前提なので、
+            // ここまでの await で別タスクになったこのタイミングで呼んでよい
+            callbacks.onSuccess({url: init.url || context.url, data, code: status},
+              stats, context, result);
+          }
+
+          abort() {
+            if (this._gateAborted) { return; }
+            this._gateAborted = true;
+            if (this.stats) {
+              this.stats.aborted = true;
+            }
+            const callbacks = this._gateCallbacks;
+            const context = this._gateContext;
+            this._gateCallbacks = this._gateContext = null;
+            // gate のリクエスト自体は止められないので、結果は捨てる
+            if (callbacks && callbacks.onAbort && context) {
+              callbacks.onAbort(this.stats, context, null);
+            }
+          }
+
+          destroy() {
+            this._gateAborted = true;
+            this._gateCallbacks = this._gateContext = null;
+            super.destroy();
+          }
+        }
+
+        return GateLoader;
+      };
+
       let FragmentLoaderClass;
       const createFragmentLoader = (Hls) => {
 
@@ -1472,9 +1610,14 @@ AntiPrototypeJs().then(() => {
             this._fragmentLoader = createFragmentLoader(Hls);
             // hls.config には fLoader をそのまま書かず、このインスタンス用の
             // 設定オブジェクトを渡す (共有 hlsConfig を汚さないため)
-            const hls = new Hls(Object.assign({}, this._hlsConfig, {
+            const config = Object.assign({}, this._hlsConfig, {
               fLoader: this._fragmentLoader
-            }));
+            });
+            if (isExternalSite()) {
+              // マニフェスト・プレイリスト・鍵の取得も gate 経由にする
+              config.loader = createGateLoader(Hls);
+            }
+            const hls = new Hls(config);
             this._hls = hls;
 
             this._hls.on(Hls.Events.MANIFEST_PARSED,
