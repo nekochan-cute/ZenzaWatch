@@ -384,6 +384,8 @@ const {initialize} = (() => {
         open,
         sendOrOpen,
         sendOrExecCommand,
+        deflistAdd,
+        deflistRemove,
         hello: BroadcastEmitter.hello,
         ping: BroadcastEmitter.ping,
         echo,
