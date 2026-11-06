@@ -168,7 +168,17 @@ class CrossDomainGate extends Emitter {
     if (options._format === 'arraybuffer') {
       return {buffer, init, headers};
     }
-    return new Response(buffer, _init);
+    const response = new Response(buffer, _init);
+    // Response.url は読み取り専用だが、リダイレクト後の URL を
+    // 使いたい呼び出し元 (hls.js の相対 URL 解決など) のために上書きする
+    if (init.url) {
+      try {
+        Object.defineProperty(response, 'url', {value: init.url, configurable: true});
+      } catch (e) {
+        console.warn('failed to set response url', e);
+      }
+    }
+    return response;
   }
   async configBridge(config) {
     const keys = config.getKeys();
