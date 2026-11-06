@@ -2681,8 +2681,9 @@ class RelatedInfoMenu extends BaseViewComponent {
 
     const vid = this._currentVideoId;
     const wid = this._currentWatchId;
-    this._ginzaLink.setAttribute('href', `//www.nicovideo.jp/watch/${wid}`);
-    this._originalLink.setAttribute('href', `//www.nicovideo.jp/watch/${vid}`);
+    const watchPath = videoInfo.isShort ? 'shorts' : 'watch';
+    this._ginzaLink.setAttribute('href', `//www.nicovideo.jp/${watchPath}/${wid}`);
+    this._originalLink.setAttribute('href', `//www.nicovideo.jp/${watchPath}/${vid}`);
     this._twitterLink.setAttribute('href', `https://twitter.com/hashtag/${vid}`);
     this._parentVideoLink.setAttribute('href', `//commons.nicovideo.jp/works/${vid}`);
     this._baseVideoLink.setAttribute('href', `//www.nicovideo.jp/watch/${this._baseVideo?.id ?? ''}`);

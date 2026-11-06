@@ -392,7 +392,7 @@ class VideoInfoModel extends JSONable {
   }
 
   get watchUrl() {
-    return `https://www.nicovideo.jp/watch/${this.watchId}`;
+    return `https://www.nicovideo.jp/${this.isShort ? 'shorts' : 'watch'}/${this.watchId}`;
   }
 
   get threadId() { // watchIdと同一とは限らない

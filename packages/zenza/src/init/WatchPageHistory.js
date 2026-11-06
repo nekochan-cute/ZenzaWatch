@@ -44,12 +44,12 @@ const WatchPageHistory = (() => {
     originalTitle = window && window.document && window.document.title;
   };
 
-  const onVideoInfoLoad = _.debounce(({watchId, title, owner: {name}}) => {
+  const onVideoInfoLoad = _.debounce(({watchId, title, owner: {name}, isShort}) => {
     if (!watchId || !isOpen) {
       return;
     }
     title = `${title} by ${name} - ${PRODUCT}`;
-    path = `/watch/${watchId}`;
+    path = `/${isShort ? 'shorts' : 'watch'}/${watchId}`;
 
     if (location.host === 'www.nicovideo.jp') {
       return pushHistory(path, title);
