@@ -180,6 +180,27 @@ await Config.promise('restore');
     };
     delete window.ZenzaLib;
 
+    // HLS のプレイリストやセグメントは Domand / DMC の配信ホストにしかない。
+    // 外部サイトの ZenzaHLS に niconico のセッションを自由に使わせないよう、
+    // 取得先を配信ホストへの GET だけに絞って CrossDomainGate に橋渡しする
+    const HLS_DELIVERY_HOST_REG = /(^|\.)(domand\.nicovideo\.jp|dmc\.nico)$/;
+    const hlsGateFetch = (url, options = {}) => {
+      const method = options.method || 'GET';
+      let host = '';
+      try {
+        host = new URL(url, location.href).hostname;
+      } catch (e) {
+        return Promise.reject({status: 'fail', message: `invalid url: ${url}`});
+      }
+      if (method !== 'GET') {
+        return Promise.reject({status: 'fail', message: `forbidden method: ${method}`});
+      }
+      if (!HLS_DELIVERY_HOST_REG.test(host)) {
+        return Promise.reject({status: 'fail', message: `forbidden host: ${host}`});
+      }
+      return NicoVideoApi.fetch(url, Object.assign({}, options, {method: 'GET'}));
+    };
+
     if (location.host.match(/\.nicovideo\.jp$/)) {
       window.ZenzaWatch = ZenzaWatch;
       window.Navi = Navi;
@@ -189,7 +210,9 @@ await Config.promise('restore');
       // createVideoElement が見えるように debug を共有する
       window.ZenzaWatch = {
         config: ZenzaWatch.config,
-        debug: ZenzaWatch.debug
+        debug: ZenzaWatch.debug,
+        // ページ直の fetch は CORS とサードパーティ Cookie の壁で届かない
+        net: {fetch: hlsGateFetch}
       };
       window.Navi = {config: Navi.config};
     }
